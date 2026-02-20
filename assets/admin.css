@@ -1,0 +1,36 @@
+.ehgfb-wrap { max-width: 1100px; }
+.ehgfb-header{ display:flex; align-items:center; gap:16px; margin:14px 0 18px; }
+.ehgfb-logo{ width:56px; height:56px; border-radius:14px; box-shadow: 0 2px 10px rgba(0,0,0,.12); }
+.ehgfb-title h1{ margin:0; padding:0; line-height:1.1; }
+.ehgfb-title .description{ margin:4px 0 0; color:#646970; }
+
+.ehgfb-status-card{ background:#fff; border:1px solid #dcdcde; border-radius:14px; padding:14px 16px; margin:14px 0 18px; box-shadow: 0 1px 6px rgba(0,0,0,.06); }
+.ehgfb-status-row{ display:grid; grid-template-columns: 1fr 1fr 1fr auto; gap:12px; align-items:center; }
+.ehgfb-status-actions form{ margin:0; }
+
+.ehgfb-grid{ display:grid; grid-template-columns: 1fr 1fr; gap:16px; }
+@media (max-width: 980px){
+  .ehgfb-grid{ grid-template-columns: 1fr; }
+  .ehgfb-status-row{ grid-template-columns: 1fr; }
+}
+
+.ehgfb-card{ background:#fff; border:1px solid #dcdcde; border-radius:14px; padding:16px; box-shadow: 0 1px 6px rgba(0,0,0,.06); margin-bottom:16px; }
+.ehgfb-card h2{ margin-top:0; }
+.ehgfb-label{ display:block; font-weight:600; margin:12px 0 6px; }
+.ehgfb-input{ width:100%; max-width: 100%; }
+.ehgfb-textarea{ width:100%; }
+.ehgfb-mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 12px; }
+.ehgfb-inline{ margin-top:10px; }
+.ehgfb-ack{ margin: 10px 0 0; }
+.ehgfb-ack label{ display:flex; gap:8px; align-items:flex-start; }
+.ehgfb-hr{ margin:14px 0; border:0; border-top:1px solid #eaecf0; }
+
+.ehgfb-metrics{ display:flex; gap:14px; flex-wrap:wrap; }
+.ehgfb-metric{ padding:12px 14px; border:1px solid #eaecf0; border-radius:14px; min-width: 180px; }
+.ehgfb-metric-num{ display:block; font-size:22px; font-weight:700; margin-bottom:4px; }
+.ehgfb-metric-label{ color:#646970; }
+
+.ehgfb-logs-header{ display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.ehgfb-table-wrap{ overflow:auto; }
+
+.ehgfb-ul, .ehgfb-ol{ margin-left: 18px; }
