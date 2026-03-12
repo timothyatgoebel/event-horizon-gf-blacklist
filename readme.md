@@ -1,12 +1,12 @@
 # Event Horizon - Gravity Forms Blacklist
 
-**Contributors:** goebelmedia
-**Requires at least:** 6.0
-**Tested up to:** 6.5
-**Requires PHP:** 7.4
-**Stable tag:** 1.0.1
-**License:** GPLv2 or later
-**License URI:** https://www.gnu.org/licenses/gpl-2.0.html
+**Contributors:** goebelmedia  
+**Requires at least:** 6.0  
+**Tested up to:** 6.5  
+**Requires PHP:** 7.4  
+**Stable tag:** 1.0.1  
+**License:** GPLv2 or later  
+**License URI:** https://www.gnu.org/licenses/gpl-2.0.html  
 
 Sync content and email blacklists from Google Sheets (CSV) and apply them to Gravity Forms fields.
 
@@ -52,5 +52,6 @@ Event Horizon checks only the fields where you enable blacklist protection.
 3. In the field settings, open the **Advanced** tab.  
 4. Enable **Content Blacklist** for text-based fields and/or **Email Blacklist** for email fields.  
 5. Save the form.  
+
 
 If these options are not enabled on a field, that field will not be scanned.
