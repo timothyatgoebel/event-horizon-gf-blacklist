@@ -155,6 +155,41 @@ class EH_GFB_Sync
         return $status;
     }
 
+    private function is_allowed_google_sheets_csv_url(string $url): bool
+    {
+        $parts = wp_parse_url($url);
+        if (! is_array($parts)) {
+            return false;
+        }
+
+        $scheme = strtolower((string) ($parts['scheme'] ?? ''));
+        $host   = strtolower((string) ($parts['host'] ?? ''));
+        $path   = (string) ($parts['path'] ?? '');
+        $query  = (string) ($parts['query'] ?? '');
+
+        if ($scheme !== 'https') {
+            return false;
+        }
+
+        if ($host !== 'docs.google.com') {
+            return false;
+        }
+
+        // Require the standard Sheets export path
+        if (! preg_match('#^/spreadsheets/d/[^/]+/export$#', $path)) {
+            return false;
+        }
+
+        parse_str($query, $params);
+
+        // Must explicitly be CSV export
+        if (strtolower((string) ($params['format'] ?? '')) !== 'csv') {
+            return false;
+        }
+
+        return true;
+    }
+
     private function sync_one(string $type, string $url, bool $force, int $has_header): bool
     {
         $url = trim($url);
@@ -163,9 +198,17 @@ class EH_GFB_Sync
             return true;
         } // Not configured: not an error.
 
-        // Only allow HTTPS sources
-        if (! preg_match('#^https://#i', $url)) {
-            $this->logger->log_event('error', $type, 0, 0, '', '', 'CSV URL must use HTTPS.');
+        // Only allow Google Sheets CSV URLs over
+        if (! $this->is_allowed_google_sheets_csv_url($url)) {
+            $this->logger->log_event(
+                'error',
+                $type,
+                0,
+                0,
+                '',
+                '',
+                'CSV URL must be a valid Google Sheets export URL.'
+            );
             return false;
         }
 

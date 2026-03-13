@@ -53,5 +53,4 @@ Event Horizon checks only the fields where you enable blacklist protection.
 4. Enable **Content Blacklist** for text-based fields and/or **Email Blacklist** for email fields.  
 5. Save the form.  
 
-
 If these options are not enabled on a field, that field will not be scanned.
