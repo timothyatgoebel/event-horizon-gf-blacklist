@@ -23,6 +23,7 @@ class EH_GFB_Admin {
 
     // Per-user acknowledgement for viewing lists.
     const USERMETA_LISTS_ACK  = 'ehgfb_lists_ack_v1';
+    const USERMETA_URL_FIXER  = 'ehgfb_url_fixer_v1';
 
     /** @var EH_GFB_Sync */
     private $sync;
@@ -201,7 +202,8 @@ class EH_GFB_Admin {
 
         if ( isset( $_GET['ehgfb_url_fixer_status'] ) ) {
             $status = sanitize_key( wp_unslash( $_GET['ehgfb_url_fixer_status'] ) );
-            $fixed  = isset( $_GET['ehgfb_url_fixer_result'] ) ? trim( (string) wp_unslash( $_GET['ehgfb_url_fixer_result'] ) ) : '';
+            $state  = $this->get_url_fixer_state();
+            $fixed  = (string) ( $state['result'] ?? '' );
 
             if ( 'invalid' === $status ) {
                 echo '<div class="notice notice-warning inline"><p>' . esc_html__( 'The URL Fixer could not detect a valid Google Sheets spreadsheet URL.', 'event-horizon-gf-blacklist' ) . '</p></div>';
@@ -581,8 +583,9 @@ class EH_GFB_Admin {
     }
 
     private function render_tools() : void {
-        $source_url = isset( $_GET['ehgfb_url_fixer_source'] ) ? trim( (string) wp_unslash( $_GET['ehgfb_url_fixer_source'] ) ) : '';
-        $fixed_url  = isset( $_GET['ehgfb_url_fixer_result'] ) ? trim( (string) wp_unslash( $_GET['ehgfb_url_fixer_result'] ) ) : '';
+        $state      = $this->get_url_fixer_state();
+        $source_url = (string) ( $state['source'] ?? '' );
+        $fixed_url  = (string) ( $state['result'] ?? '' );
         ?>
         <div class="ehgfb-card">
             <h2><?php esc_html_e( 'URL Fixer', 'event-horizon-gf-blacklist' ); ?></h2>
@@ -780,7 +783,12 @@ class EH_GFB_Admin {
         $fixed_url  = $this->convert_google_sheet_url_to_csv_export( $source_url );
 
         $redirect = admin_url( 'admin.php?page=' . self::MENU_SLUG . '-tools' );
-        $redirect = add_query_arg( 'ehgfb_url_fixer_source', $source_url, $redirect );
+        $this->set_url_fixer_state(
+            array(
+                'source' => $source_url,
+                'result' => $fixed_url,
+            )
+        );
 
         if ( '' === $fixed_url ) {
             $redirect = add_query_arg( 'ehgfb_url_fixer_status', 'invalid', $redirect );
@@ -802,7 +810,6 @@ class EH_GFB_Admin {
             $redirect = add_query_arg( 'ehgfb_url_fixer_status', 'converted', $redirect );
         }
 
-        $redirect = add_query_arg( 'ehgfb_url_fixer_result', $fixed_url, $redirect );
         wp_safe_redirect( $redirect );
         exit;
     }
@@ -912,6 +919,25 @@ class EH_GFB_Admin {
         }
 
         return $fixed;
+    }
+
+    private function get_url_fixer_state() : array {
+        $user_id = get_current_user_id();
+        if ( ! $user_id ) {
+            return array();
+        }
+
+        $state = get_user_meta( $user_id, self::USERMETA_URL_FIXER, true );
+        return is_array( $state ) ? $state : array();
+    }
+
+    private function set_url_fixer_state( array $state ) : void {
+        $user_id = get_current_user_id();
+        if ( ! $user_id ) {
+            return;
+        }
+
+        update_user_meta( $user_id, self::USERMETA_URL_FIXER, $state );
     }
 
     private function handle_uploaded_csv( string $type, string $file_input, bool $remove_existing ) : void {
