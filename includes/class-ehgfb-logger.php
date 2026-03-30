@@ -53,12 +53,7 @@ class EH_GFB_Logger {
     public function log_event( string $type, string $list_type, int $form_id, int $field_id, string $rule, string $value_hash, string $message ) : void {
         if ( ! $this->enabled() ) { return; }
 
-        // Only log form-related events. We intentionally suppress sync noise.
-        // - type 'sync' is always suppressed
-        // - type 'error' is suppressed when not tied to a specific form/field (i.e., sync/system errors)
         $t = sanitize_key( $type );
-        if ( $t === 'sync' ) { return; }
-        if ( $t === 'error' && ( (int) $form_id === 0 ) && ( (int) $field_id === 0 ) ) { return; }
 
         global $wpdb;
         $table = $this->table_name();
@@ -90,11 +85,12 @@ class EH_GFB_Logger {
         $per_page = max( 1, min( 200, $per_page ) );
         $offset = ( $page - 1 ) * $per_page;
 
-        $total = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table}" );
+        $total = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table} WHERE NOT ( type = 'sync' OR ( type = 'error' AND form_id = 0 AND field_id = 0 ) )" );
         $rows = $wpdb->get_results(
             $wpdb->prepare(
                 "SELECT created_at, type, list_type, form_id, field_id, rule, value_hash, message
                  FROM {$table}
+                 WHERE NOT ( type = 'sync' OR ( type = 'error' AND form_id = 0 AND field_id = 0 ) )
                  ORDER BY id DESC
                  LIMIT %d OFFSET %d",
                  $per_page, $offset

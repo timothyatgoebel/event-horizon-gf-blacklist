@@ -333,7 +333,7 @@ class EH_GFB_Admin {
 
             <?php if ( ! empty( $warnings ) ) : ?>
                 <div class="notice notice-warning inline"><p>
-                    <?php echo esc_html( implode( ' • ', array_map( 'strval', $warnings ) ) ); ?>
+                    <?php echo esc_html( implode( ' | ', array_map( 'strval', $warnings ) ) ); ?>
                 </p></div>
             <?php endif; ?>
         </div>
@@ -570,8 +570,8 @@ class EH_GFB_Admin {
                     echo paginate_links( array(
                         'base' => esc_url_raw( add_query_arg( 'paged', '%#%', $base ) ),
                         'format' => '',
-                        'prev_text' => '«',
-                        'next_text' => '»',
+                        'prev_text' => '&laquo;',
+                        'next_text' => '&raquo;',
                         'total' => $total_pages,
                         'current' => $page,
                     ) );
@@ -642,17 +642,17 @@ class EH_GFB_Admin {
         <div class="ehgfb-card">
             <h2><?php esc_html_e( 'Import methods', 'event-horizon-gf-blacklist' ); ?></h2>
             <p class="description"><?php esc_html_e( 'Each blacklist can use either a Google Sheets CSV export or an uploaded CSV file.', 'event-horizon-gf-blacklist' ); ?></p>
+
             <h3><?php esc_html_e( 'Google Sheets CSV link', 'event-horizon-gf-blacklist' ); ?></h3>
             <ol class="ehgfb-ol">
-                <li><?php esc_html_e( 'Open your Google Sheet and click File → Share → Publish to web.', 'event-horizon-gf-blacklist' ); ?></li>
-                <li><?php esc_html_e( 'Choose the specific sheet/tab (not the entire document).', 'event-horizon-gf-blacklist' ); ?></li>
-                <li><?php esc_html_e( 'Select “Comma-separated values (.csv)” as the format, then click Publish.', 'event-horizon-gf-blacklist' ); ?></li>
+                <li><?php esc_html_e( 'Open your Google Sheet and click File > Share > Publish to web.', 'event-horizon-gf-blacklist' ); ?></li>
+                <li><?php esc_html_e( 'Choose the specific sheet or tab, not the entire document.', 'event-horizon-gf-blacklist' ); ?></li>
+                <li><?php esc_html_e( 'Select "Comma-separated values (.csv)" as the format, then click Publish.', 'event-horizon-gf-blacklist' ); ?></li>
                 <li><?php esc_html_e( 'Copy the published URL and paste it into the appropriate setting on the Settings tab.', 'event-horizon-gf-blacklist' ); ?></li>
             </ol>
-            <p class="description">
-                <?php esc_html_e( 'Tip: If you prefer not to “Publish to web”, you can also use an export link in the format:', 'event-horizon-gf-blacklist' ); ?>
-            </p>
+            <p class="description"><?php esc_html_e( 'Tip: If you prefer not to publish the sheet to the web, you can also use an export link in the format below.', 'event-horizon-gf-blacklist' ); ?></p>
             <p><code>https://docs.google.com/spreadsheets/d/&lt;SHEET_ID&gt;/export?format=csv&amp;gid=&lt;TAB_GID&gt;</code></p>
+            <p class="description"><?php esc_html_e( 'If you only have a normal Google Sheets edit or sharing link, open the Tools tab and use URL Fixer to convert it.', 'event-horizon-gf-blacklist' ); ?></p>
 
             <h3><?php esc_html_e( 'Uploaded CSV file', 'event-horizon-gf-blacklist' ); ?></h3>
             <ol class="ehgfb-ol">
@@ -662,6 +662,13 @@ class EH_GFB_Admin {
             </ol>
             <p class="description"><?php esc_html_e( 'When both blacklist sources use uploaded CSV files, scheduled remote sync is disabled.', 'event-horizon-gf-blacklist' ); ?></p>
 
+            <h3><?php esc_html_e( 'Tools tab', 'event-horizon-gf-blacklist' ); ?></h3>
+            <ol class="ehgfb-ol">
+                <li><?php esc_html_e( 'Paste any Google Sheets sharing or edit URL into URL Fixer.', 'event-horizon-gf-blacklist' ); ?></li>
+                <li><?php esc_html_e( 'Convert it into the CSV export URL used by this plugin.', 'event-horizon-gf-blacklist' ); ?></li>
+                <li><?php esc_html_e( 'Copy the result or save it directly as the content or email blacklist URL.', 'event-horizon-gf-blacklist' ); ?></li>
+            </ol>
+
             <hr class="ehgfb-hr" />
 
             <h2><?php esc_html_e( 'Blacklist format', 'event-horizon-gf-blacklist' ); ?></h2>
@@ -669,31 +676,30 @@ class EH_GFB_Admin {
 
             <h3><?php esc_html_e( 'Content rules', 'event-horizon-gf-blacklist' ); ?></h3>
             <ul class="ehgfb-ul">
-                <li><code>casino</code> — <?php esc_html_e( 'Matches as a whole word (case-insensitive).', 'event-horizon-gf-blacklist' ); ?></li>
-                <li><code>buy now</code> — <?php esc_html_e( 'Matches as a substring (case-insensitive).', 'event-horizon-gf-blacklist' ); ?></li>
-                <li><code>regex:/\bfree\s+money\b/i</code> — <?php esc_html_e( 'Regex match. Use PHP regex delimiters.', 'event-horizon-gf-blacklist' ); ?></li>
+                <li><code>casino</code> - <?php esc_html_e( 'Matches as a whole word (case-insensitive).', 'event-horizon-gf-blacklist' ); ?></li>
+                <li><code>buy now</code> - <?php esc_html_e( 'Matches as a substring (case-insensitive).', 'event-horizon-gf-blacklist' ); ?></li>
+                <li><code>regex:/\bfree\s+money\b/i</code> - <?php esc_html_e( 'Regex match. Use PHP regex delimiters.', 'event-horizon-gf-blacklist' ); ?></li>
             </ul>
 
             <h3><?php esc_html_e( 'Email rules', 'event-horizon-gf-blacklist' ); ?></h3>
             <ul class="ehgfb-ul">
-                <li><code>badguy@example.com</code> — <?php esc_html_e( 'Exact email match (case-insensitive).', 'event-horizon-gf-blacklist' ); ?></li>
-                <li><code>*@spammail.com</code> — <?php esc_html_e( 'Block an entire domain.', 'event-horizon-gf-blacklist' ); ?></li>
-                <li><code>regex:/@temp-mail\./i</code> — <?php esc_html_e( 'Regex match (useful for disposable email patterns).', 'event-horizon-gf-blacklist' ); ?></li>
-
+                <li><code>badguy@example.com</code> - <?php esc_html_e( 'Exact email match (case-insensitive).', 'event-horizon-gf-blacklist' ); ?></li>
+                <li><code>*@spammail.com</code> - <?php esc_html_e( 'Block an entire domain.', 'event-horizon-gf-blacklist' ); ?></li>
+                <li><code>regex:/@temp-mail\./i</code> - <?php esc_html_e( 'Regex match (useful for disposable email patterns).', 'event-horizon-gf-blacklist' ); ?></li>
+            </ul>
 
             <hr class="ehgfb-hr" />
 
             <h2><?php esc_html_e( 'Enable blacklists on form fields', 'event-horizon-gf-blacklist' ); ?></h2>
             <p class="description"><?php esc_html_e( 'Event Horizon checks only the fields where you enable blacklist protection.', 'event-horizon-gf-blacklist' ); ?></p>
             <ol class="ehgfb-ol">
-                <li><?php esc_html_e( 'Go to Forms → Edit Form.', 'event-horizon-gf-blacklist' ); ?></li>
+                <li><?php esc_html_e( 'Go to Forms > Edit Form.', 'event-horizon-gf-blacklist' ); ?></li>
                 <li><?php esc_html_e( 'Click the field you want to protect (for example: Email, Name, Message).', 'event-horizon-gf-blacklist' ); ?></li>
                 <li><?php esc_html_e( 'In the field settings, open the Advanced tab.', 'event-horizon-gf-blacklist' ); ?></li>
                 <li><?php esc_html_e( 'Enable Content Blacklist for text-based fields and/or Email Blacklist for email fields.', 'event-horizon-gf-blacklist' ); ?></li>
                 <li><?php esc_html_e( 'Save the form.', 'event-horizon-gf-blacklist' ); ?></li>
             </ol>
             <p class="description"><?php esc_html_e( 'If these options are not enabled on a field, that field will not be scanned.', 'event-horizon-gf-blacklist' ); ?></p>
-            </ul>
         </div>
         <?php
     }
@@ -812,16 +818,6 @@ class EH_GFB_Admin {
 
         wp_safe_redirect( $redirect );
         exit;
-    }
-
-    /**
-     * When the sync interval changes, reschedule WP-Cron.
-     */
-    public function handle_interval_change( $old_value, $value ) : void {
-        $old = (int) $old_value;
-        $new = (int) $value;
-        if ( $old === $new ) { return; }
-        $this->sync->ensure_cron_scheduled( true );
     }
 
     // Sanitizers
@@ -997,3 +993,4 @@ class EH_GFB_Admin {
         );
     }
 }
+
