@@ -201,7 +201,7 @@ class EH_GFB_Admin {
 
         if ( isset( $_GET['ehgfb_url_fixer_status'] ) ) {
             $status = sanitize_key( wp_unslash( $_GET['ehgfb_url_fixer_status'] ) );
-            $fixed  = isset( $_GET['ehgfb_url_fixer_result'] ) ? sanitize_text_field( wp_unslash( $_GET['ehgfb_url_fixer_result'] ) ) : '';
+            $fixed  = isset( $_GET['ehgfb_url_fixer_result'] ) ? trim( (string) wp_unslash( $_GET['ehgfb_url_fixer_result'] ) ) : '';
 
             if ( 'invalid' === $status ) {
                 echo '<div class="notice notice-warning inline"><p>' . esc_html__( 'The URL Fixer could not detect a valid Google Sheets spreadsheet URL.', 'event-horizon-gf-blacklist' ) . '</p></div>';
@@ -581,8 +581,8 @@ class EH_GFB_Admin {
     }
 
     private function render_tools() : void {
-        $source_url = isset( $_GET['ehgfb_url_fixer_source'] ) ? sanitize_text_field( wp_unslash( $_GET['ehgfb_url_fixer_source'] ) ) : '';
-        $fixed_url  = isset( $_GET['ehgfb_url_fixer_result'] ) ? sanitize_text_field( wp_unslash( $_GET['ehgfb_url_fixer_result'] ) ) : '';
+        $source_url = isset( $_GET['ehgfb_url_fixer_source'] ) ? trim( (string) wp_unslash( $_GET['ehgfb_url_fixer_source'] ) ) : '';
+        $fixed_url  = isset( $_GET['ehgfb_url_fixer_result'] ) ? trim( (string) wp_unslash( $_GET['ehgfb_url_fixer_result'] ) ) : '';
         ?>
         <div class="ehgfb-card">
             <h2><?php esc_html_e( 'URL Fixer', 'event-horizon-gf-blacklist' ); ?></h2>
@@ -775,7 +775,7 @@ class EH_GFB_Admin {
         if ( ! current_user_can( self::CAPABILITY ) ) { wp_die( 'Forbidden' ); }
         check_admin_referer( 'ehgfb_url_fixer' );
 
-        $source_url = isset( $_POST['ehgfb_url_fixer_source'] ) ? trim( sanitize_text_field( wp_unslash( $_POST['ehgfb_url_fixer_source'] ) ) ) : '';
+        $source_url = isset( $_POST['ehgfb_url_fixer_source'] ) ? trim( (string) wp_unslash( $_POST['ehgfb_url_fixer_source'] ) ) : '';
         $action     = isset( $_POST['ehgfb_url_fixer_action'] ) ? sanitize_key( wp_unslash( $_POST['ehgfb_url_fixer_action'] ) ) : 'convert';
         $fixed_url  = $this->convert_google_sheet_url_to_csv_export( $source_url );
 
@@ -897,6 +897,8 @@ class EH_GFB_Admin {
             $gid = (string) $query_params['gid'];
         } elseif ( isset( $fragment_params['gid'] ) ) {
             $gid = (string) $fragment_params['gid'];
+        } elseif ( preg_match( '/(?:\?|&|#)gid=(\d+)/', $url, $gid_match ) ) {
+            $gid = (string) $gid_match[1];
         }
 
         if ( '' === $gid ) {
