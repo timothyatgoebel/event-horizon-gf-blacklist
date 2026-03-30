@@ -336,23 +336,27 @@ class EH_GFB_Admin {
                     <div class="ehgfb-source-grid">
                         <div class="ehgfb-source-panel">
                             <label class="ehgfb-label" for="ehgfb_content_source"><?php esc_html_e( 'Content blacklist source', 'event-horizon-gf-blacklist' ); ?></label>
-                            <select id="ehgfb_content_source" name="<?php echo esc_attr( self::OPT_CONTENT_SOURCE ); ?>" class="ehgfb-input">
+                            <select id="ehgfb_content_source" name="<?php echo esc_attr( self::OPT_CONTENT_SOURCE ); ?>" class="ehgfb-input ehgfb-source-select" data-target="content">
                                 <option value="<?php echo esc_attr( EH_GFB_Sync::SOURCE_GOOGLE_SHEETS ); ?>" <?php selected( $content_source, EH_GFB_Sync::SOURCE_GOOGLE_SHEETS ); ?>><?php esc_html_e( 'Google Sheet CSV URL', 'event-horizon-gf-blacklist' ); ?></option>
                                 <option value="<?php echo esc_attr( EH_GFB_Sync::SOURCE_UPLOADED_CSV ); ?>" <?php selected( $content_source, EH_GFB_Sync::SOURCE_UPLOADED_CSV ); ?>><?php esc_html_e( 'Uploaded CSV file', 'event-horizon-gf-blacklist' ); ?></option>
                             </select>
 
-                            <label class="ehgfb-label" for="ehgfb_content_sheet_url"><?php esc_html_e( 'Content blacklist CSV URL', 'event-horizon-gf-blacklist' ); ?></label>
-                            <input class="regular-text ehgfb-input" type="url" id="ehgfb_content_sheet_url" name="<?php echo esc_attr( self::OPT_CONTENT_URL ); ?>" value="<?php echo esc_attr( $content_url ); ?>" placeholder="https://docs.google.com/spreadsheets/d/.../export?format=csv&gid=..." />
+                            <div class="ehgfb-source-fields" data-source-fields="content-google_sheets">
+                                <label class="ehgfb-label" for="ehgfb_content_sheet_url"><?php esc_html_e( 'Content blacklist CSV URL', 'event-horizon-gf-blacklist' ); ?></label>
+                                <input class="regular-text ehgfb-input" type="url" id="ehgfb_content_sheet_url" name="<?php echo esc_attr( self::OPT_CONTENT_URL ); ?>" value="<?php echo esc_attr( $content_url ); ?>" placeholder="https://docs.google.com/spreadsheets/d/.../export?format=csv&gid=..." />
+                            </div>
 
-                            <label class="ehgfb-label" for="ehgfb_content_csv_file"><?php esc_html_e( 'Upload content CSV', 'event-horizon-gf-blacklist' ); ?></label>
-                            <input class="ehgfb-input" type="file" id="ehgfb_content_csv_file" name="ehgfb_content_csv_upload" accept=".csv,text/csv" />
-                            <?php if ( ! empty( $content_file['name'] ) ) : ?>
-                                <p class="description"><?php echo esc_html( sprintf( __( 'Current file: %s', 'event-horizon-gf-blacklist' ), (string) $content_file['name'] ) ); ?></p>
-                            <?php endif; ?>
-                            <label class="ehgfb-inline">
-                                <input type="checkbox" name="ehgfb_content_csv_remove" value="1" />
-                                <?php esc_html_e( 'Remove uploaded content CSV', 'event-horizon-gf-blacklist' ); ?>
-                            </label>
+                            <div class="ehgfb-source-fields" data-source-fields="content-uploaded_csv">
+                                <label class="ehgfb-label" for="ehgfb_content_csv_file"><?php esc_html_e( 'Upload content CSV', 'event-horizon-gf-blacklist' ); ?></label>
+                                <input class="ehgfb-input" type="file" id="ehgfb_content_csv_file" name="ehgfb_content_csv_upload" accept=".csv,text/csv" />
+                                <?php if ( ! empty( $content_file['name'] ) ) : ?>
+                                    <p class="description"><?php echo esc_html( sprintf( __( 'Current file: %s', 'event-horizon-gf-blacklist' ), (string) $content_file['name'] ) ); ?></p>
+                                <?php endif; ?>
+                                <label class="ehgfb-inline">
+                                    <input type="checkbox" name="ehgfb_content_csv_remove" value="1" />
+                                    <?php esc_html_e( 'Remove uploaded content CSV', 'event-horizon-gf-blacklist' ); ?>
+                                </label>
+                            </div>
 
                             <div class="ehgfb-inline">
                                 <label>
@@ -364,23 +368,27 @@ class EH_GFB_Admin {
 
                         <div class="ehgfb-source-panel">
                             <label class="ehgfb-label" for="ehgfb_email_source"><?php esc_html_e( 'Email blacklist source', 'event-horizon-gf-blacklist' ); ?></label>
-                            <select id="ehgfb_email_source" name="<?php echo esc_attr( self::OPT_EMAIL_SOURCE ); ?>" class="ehgfb-input">
+                            <select id="ehgfb_email_source" name="<?php echo esc_attr( self::OPT_EMAIL_SOURCE ); ?>" class="ehgfb-input ehgfb-source-select" data-target="email">
                                 <option value="<?php echo esc_attr( EH_GFB_Sync::SOURCE_GOOGLE_SHEETS ); ?>" <?php selected( $email_source, EH_GFB_Sync::SOURCE_GOOGLE_SHEETS ); ?>><?php esc_html_e( 'Google Sheet CSV URL', 'event-horizon-gf-blacklist' ); ?></option>
                                 <option value="<?php echo esc_attr( EH_GFB_Sync::SOURCE_UPLOADED_CSV ); ?>" <?php selected( $email_source, EH_GFB_Sync::SOURCE_UPLOADED_CSV ); ?>><?php esc_html_e( 'Uploaded CSV file', 'event-horizon-gf-blacklist' ); ?></option>
                             </select>
 
-                            <label class="ehgfb-label" for="ehgfb_email_sheet_url"><?php esc_html_e( 'Email blacklist CSV URL', 'event-horizon-gf-blacklist' ); ?></label>
-                            <input class="regular-text ehgfb-input" type="url" id="ehgfb_email_sheet_url" name="<?php echo esc_attr( self::OPT_EMAIL_URL ); ?>" value="<?php echo esc_attr( $email_url ); ?>" placeholder="https://docs.google.com/spreadsheets/d/.../export?format=csv&gid=..." />
+                            <div class="ehgfb-source-fields" data-source-fields="email-google_sheets">
+                                <label class="ehgfb-label" for="ehgfb_email_sheet_url"><?php esc_html_e( 'Email blacklist CSV URL', 'event-horizon-gf-blacklist' ); ?></label>
+                                <input class="regular-text ehgfb-input" type="url" id="ehgfb_email_sheet_url" name="<?php echo esc_attr( self::OPT_EMAIL_URL ); ?>" value="<?php echo esc_attr( $email_url ); ?>" placeholder="https://docs.google.com/spreadsheets/d/.../export?format=csv&gid=..." />
+                            </div>
 
-                            <label class="ehgfb-label" for="ehgfb_email_csv_file"><?php esc_html_e( 'Upload email CSV', 'event-horizon-gf-blacklist' ); ?></label>
-                            <input class="ehgfb-input" type="file" id="ehgfb_email_csv_file" name="ehgfb_email_csv_upload" accept=".csv,text/csv" />
-                            <?php if ( ! empty( $email_file['name'] ) ) : ?>
-                                <p class="description"><?php echo esc_html( sprintf( __( 'Current file: %s', 'event-horizon-gf-blacklist' ), (string) $email_file['name'] ) ); ?></p>
-                            <?php endif; ?>
-                            <label class="ehgfb-inline">
-                                <input type="checkbox" name="ehgfb_email_csv_remove" value="1" />
-                                <?php esc_html_e( 'Remove uploaded email CSV', 'event-horizon-gf-blacklist' ); ?>
-                            </label>
+                            <div class="ehgfb-source-fields" data-source-fields="email-uploaded_csv">
+                                <label class="ehgfb-label" for="ehgfb_email_csv_file"><?php esc_html_e( 'Upload email CSV', 'event-horizon-gf-blacklist' ); ?></label>
+                                <input class="ehgfb-input" type="file" id="ehgfb_email_csv_file" name="ehgfb_email_csv_upload" accept=".csv,text/csv" />
+                                <?php if ( ! empty( $email_file['name'] ) ) : ?>
+                                    <p class="description"><?php echo esc_html( sprintf( __( 'Current file: %s', 'event-horizon-gf-blacklist' ), (string) $email_file['name'] ) ); ?></p>
+                                <?php endif; ?>
+                                <label class="ehgfb-inline">
+                                    <input type="checkbox" name="ehgfb_email_csv_remove" value="1" />
+                                    <?php esc_html_e( 'Remove uploaded email CSV', 'event-horizon-gf-blacklist' ); ?>
+                                </label>
+                            </div>
 
                             <div class="ehgfb-inline">
                                 <label>
@@ -427,6 +435,28 @@ class EH_GFB_Admin {
 
             <?php submit_button( __( 'Save settings', 'event-horizon-gf-blacklist' ) ); ?>
         </form>
+        <script type="text/javascript">
+        (function() {
+            function updateSourceFields(selectEl) {
+                var target = selectEl.getAttribute('data-target');
+                var mode = selectEl.value;
+                var groups = document.querySelectorAll('[data-source-fields^="' + target + '-"]');
+                for (var i = 0; i < groups.length; i++) {
+                    var group = groups[i];
+                    var shouldShow = group.getAttribute('data-source-fields') === target + '-' + mode;
+                    group.hidden = !shouldShow;
+                }
+            }
+
+            var selects = document.querySelectorAll('.ehgfb-source-select');
+            for (var i = 0; i < selects.length; i++) {
+                updateSourceFields(selects[i]);
+                selects[i].addEventListener('change', function() {
+                    updateSourceFields(this);
+                });
+            }
+        })();
+        </script>
         <?php
     }
 
