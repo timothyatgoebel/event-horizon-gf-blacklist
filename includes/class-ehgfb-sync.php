@@ -1,10 +1,12 @@
 <?php
-if (! defined('ABSPATH')) {
+if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-class EH_GFB_Sync
-{
+class EH_GFB_Sync {
+
+    const SOURCE_GOOGLE_SHEETS = 'google_sheets';
+    const SOURCE_UPLOADED_CSV  = 'uploaded_csv';
 
     const CRON_HOOK = 'ehgfb_cron_sync';
     const CRON_PURGE_HOOK = 'ehgfb_cron_purge_logs';
@@ -16,350 +18,457 @@ class EH_GFB_Sync
     /** @var EH_GFB_Logger */
     private $logger;
 
-    public function __construct(EH_GFB_Logger $logger)
-    {
+    public function __construct( EH_GFB_Logger $logger ) {
         $this->logger = $logger;
-        add_filter('cron_schedules', array($this, 'add_cron_schedules'));
+        add_filter( 'cron_schedules', array( $this, 'add_cron_schedules' ) );
     }
 
-    public function add_cron_schedules($schedules)
-    {
-        $minutes = (int) get_option(EH_GFB_Admin::OPT_SYNC_INTERVAL, 60);
-        $minutes = max(5, min(1440, $minutes));
+    public function add_cron_schedules( $schedules ) {
+        $minutes = (int) get_option( EH_GFB_Admin::OPT_SYNC_INTERVAL, 60 );
+        $minutes = max( 5, min( 1440, $minutes ) );
 
         $key = 'ehgfb_' . $minutes . 'min';
-        $schedules[$key] = array(
+        $schedules[ $key ] = array(
             'interval' => $minutes * MINUTE_IN_SECONDS,
-            'display'  => sprintf(__('Event Horizon (%d minutes)', 'event-horizon-gf-blacklist'), $minutes),
+            'display'  => sprintf( __( 'Event Horizon (%d minutes)', 'event-horizon-gf-blacklist' ), $minutes ),
         );
+
         return $schedules;
     }
 
-    public function ensure_cron_scheduled(bool $reschedule = false): void
-    {
-        $minutes = (int) get_option(EH_GFB_Admin::OPT_SYNC_INTERVAL, 60);
-        $minutes = max(5, min(1440, $minutes));
-        $recurrence = 'ehgfb_' . $minutes . 'min';
-
-        $next = wp_next_scheduled(self::CRON_HOOK);
-        if ($next && $reschedule) {
-            wp_clear_scheduled_hook(self::CRON_HOOK);
-            $next = false;
-        }
-
-        if (! $next) {
-            wp_schedule_event(time() + 60, $recurrence, self::CRON_HOOK);
-        }
-    }
-
-    public function run_scheduled_sync(): void
-    {
-        $this->sync_now(false);
-    }
-
-    public function maybe_background_refresh(): void
-    {
-        $status = get_option(self::OPT_STATUS, array());
-        $last   = (int) ($status['last_sync_ts'] ?? 0);
-        $minutes = (int) get_option(EH_GFB_Admin::OPT_SYNC_INTERVAL, 60);
-        $ttl = max(5, min(1440, $minutes)) * MINUTE_IN_SECONDS;
-
-        if ($last > 0 && (time() - $last) < $ttl) {
+    public function ensure_cron_scheduled( bool $reschedule = false ) : void {
+        if ( ! $this->should_schedule_remote_sync() ) {
+            wp_clear_scheduled_hook( self::CRON_HOOK );
             return;
         }
 
-        // Attempt a light refresh asynchronously (still runs in-request, but only once per TTL).
-        // If your site has object cache, this keeps user requests snappy because we use conditional requests.
-        $this->sync_now(false);
+        $minutes = (int) get_option( EH_GFB_Admin::OPT_SYNC_INTERVAL, 60 );
+        $minutes = max( 5, min( 1440, $minutes ) );
+        $recurrence = 'ehgfb_' . $minutes . 'min';
+
+        $next = wp_next_scheduled( self::CRON_HOOK );
+        if ( $next && $reschedule ) {
+            wp_clear_scheduled_hook( self::CRON_HOOK );
+            $next = false;
+        }
+
+        if ( ! $next ) {
+            wp_schedule_event( time() + 60, $recurrence, self::CRON_HOOK );
+        }
     }
 
-    public function sync_now(bool $force): bool
-    {
+    public function run_scheduled_sync() : void {
+        $this->sync_now( false );
+    }
+
+    public function maybe_background_refresh() : void {
+        if ( ! $this->should_schedule_remote_sync() ) {
+            return;
+        }
+
+        $status  = get_option( self::OPT_STATUS, array() );
+        $last    = (int) ( $status['last_sync_ts'] ?? 0 );
+        $minutes = (int) get_option( EH_GFB_Admin::OPT_SYNC_INTERVAL, 60 );
+        $ttl     = max( 5, min( 1440, $minutes ) ) * MINUTE_IN_SECONDS;
+
+        if ( $last > 0 && ( time() - $last ) < $ttl ) {
+            return;
+        }
+
+        $this->sync_now( false );
+    }
+
+    public function sync_now( bool $force ) : bool {
         $this->ensure_cron_scheduled();
 
-        $ok_content = $this->sync_one('content', get_option(EH_GFB_Admin::OPT_CONTENT_URL, ''), $force, (int) get_option(EH_GFB_Admin::OPT_CONTENT_HEADER, 1));
-        $ok_email   = $this->sync_one('email', get_option(EH_GFB_Admin::OPT_EMAIL_URL, ''), $force, (int) get_option(EH_GFB_Admin::OPT_EMAIL_HEADER, 1));
+        $ok_content = $this->sync_one( 'content', $force );
+        $ok_email   = $this->sync_one( 'email', $force );
 
-        $status = get_option(self::OPT_STATUS, array());
-        $status['last_sync_ts'] = time();
-        $status['last_sync_human'] = date_i18n('Y-m-d H:i:s', $status['last_sync_ts']);
-        $status['content_count'] = count($this->get_cached_list('content'));
-        $status['email_count']   = count($this->get_cached_list('email'));
+        $status                     = get_option( self::OPT_STATUS, array() );
+        $status['last_sync_ts']     = time();
+        $status['last_sync_human']  = date_i18n( 'Y-m-d H:i:s', $status['last_sync_ts'] );
+        $status['content_count']    = count( $this->get_cached_list( 'content' ) );
+        $status['email_count']      = count( $this->get_cached_list( 'email' ) );
+        $status['cron_enabled']     = $this->should_schedule_remote_sync();
+        $status['content_source']   = $this->get_source_mode( 'content' );
+        $status['email_source']     = $this->get_source_mode( 'email' );
 
-        update_option(self::OPT_STATUS, $status, false);
+        update_option( self::OPT_STATUS, $status, false );
 
-        if ($ok_content && $ok_email) {
-            $this->logger->log_event('sync', 'system', 0, 0, '', '', 'Sync completed successfully.');
+        if ( $ok_content && $ok_email ) {
+            $this->logger->log_event( 'sync', 'system', 0, 0, '', '', 'Blacklist refresh completed successfully.' );
             return true;
         }
 
-        $this->logger->log_event('error', 'system', 0, 0, '', '', 'Sync completed with errors.');
+        $this->logger->log_event( 'error', 'system', 0, 0, '', '', 'Blacklist refresh completed with errors.' );
         return false;
     }
 
-    public function get_cached_list(string $type): array
-    {
-        $opt = ($type === 'email') ? self::OPT_CACHE_EMAIL : self::OPT_CACHE_CONTENT;
-        $cache = get_option($opt, array());
+    public function get_cached_list( string $type ) : array {
+        $opt   = ( 'email' === $type ) ? self::OPT_CACHE_EMAIL : self::OPT_CACHE_CONTENT;
+        $cache = get_option( $opt, array() );
         $rules = $cache['rules'] ?? array();
-        return is_array($rules) ? $rules : array();
+
+        return is_array( $rules ) ? $rules : array();
     }
 
     /**
      * Clears the cached rules for a list type.
-     * This does NOT modify the source Google Sheet.
+     * This does NOT modify the configured source file or sheet.
      */
-    public function clear_cached_list(string $type): void
-    {
-        $type = ($type === 'email') ? 'email' : 'content';
-        $opt  = ($type === 'email') ? self::OPT_CACHE_EMAIL : self::OPT_CACHE_CONTENT;
+    public function clear_cached_list( string $type ) : void {
+        $type = ( 'email' === $type ) ? 'email' : 'content';
+        $opt  = ( 'email' === $type ) ? self::OPT_CACHE_EMAIL : self::OPT_CACHE_CONTENT;
 
-        delete_option($opt);
+        delete_option( $opt );
 
-        // Update status counts.
-        $status = get_option(self::OPT_STATUS, array());
-        $status['content_count'] = count($this->get_cached_list('content'));
-        $status['email_count']   = count($this->get_cached_list('email'));
-        update_option(self::OPT_STATUS, $status, false);
+        $status                   = get_option( self::OPT_STATUS, array() );
+        $status['content_count']  = count( $this->get_cached_list( 'content' ) );
+        $status['email_count']    = count( $this->get_cached_list( 'email' ) );
+        update_option( self::OPT_STATUS, $status, false );
 
-        $this->logger->log_event('sync', $type, 0, 0, '', '', 'Cache cleared.');
+        $this->logger->log_event( 'sync', $type, 0, 0, '', '', 'Cache cleared.' );
     }
 
-    public function get_status(): array
-    {
-        $status = get_option(self::OPT_STATUS, array());
+    public function get_status() : array {
+        $status = get_option( self::OPT_STATUS, array() );
 
-        $warnings = array();
-        if (empty(get_option(EH_GFB_Admin::OPT_CONTENT_URL, ''))) {
-            $warnings[] = __('Content CSV URL is not set.', 'event-horizon-gf-blacklist');
-        }
-        if (empty(get_option(EH_GFB_Admin::OPT_EMAIL_URL, ''))) {
-            $warnings[] = __('Email CSV URL is not set.', 'event-horizon-gf-blacklist');
-        }
+        $warnings = array_merge(
+            $this->get_source_warnings( 'content' ),
+            $this->get_source_warnings( 'email' )
+        );
 
-        $next = wp_next_scheduled(self::CRON_HOOK);
-        $status['next_sync_human'] = $next ? date_i18n('Y-m-d H:i:s', $next) : '';
+        $next = wp_next_scheduled( self::CRON_HOOK );
+        $status['next_sync_human'] = $next ? date_i18n( 'Y-m-d H:i:s', $next ) : '';
+        $status['cron_enabled']    = $this->should_schedule_remote_sync();
+        $status['warnings']        = $warnings;
 
-        $status['warnings'] = $warnings;
-
-        if (empty($status['last_sync_human']) && ! empty($status['last_sync_ts'])) {
-            $status['last_sync_human'] = date_i18n('Y-m-d H:i:s', (int) $status['last_sync_ts']);
+        if ( empty( $status['last_sync_human'] ) && ! empty( $status['last_sync_ts'] ) ) {
+            $status['last_sync_human'] = date_i18n( 'Y-m-d H:i:s', (int) $status['last_sync_ts'] );
         }
-        if (! isset($status['content_count'])) {
-            $status['content_count'] = count($this->get_cached_list('content'));
+        if ( ! isset( $status['content_count'] ) ) {
+            $status['content_count'] = count( $this->get_cached_list( 'content' ) );
         }
-        if (! isset($status['email_count'])) {
-            $status['email_count'] = count($this->get_cached_list('email'));
+        if ( ! isset( $status['email_count'] ) ) {
+            $status['email_count'] = count( $this->get_cached_list( 'email' ) );
         }
 
         return $status;
     }
 
-    private function is_allowed_google_sheets_csv_url(string $url): bool
-    {
-        $parts = wp_parse_url($url);
-        if (! is_array($parts)) {
+    public function should_schedule_remote_sync() : bool {
+        return self::SOURCE_GOOGLE_SHEETS === $this->get_source_mode( 'content' )
+            || self::SOURCE_GOOGLE_SHEETS === $this->get_source_mode( 'email' );
+    }
+
+    public function get_source_mode( string $type ) : string {
+        $option = ( 'email' === $type ) ? EH_GFB_Admin::OPT_EMAIL_SOURCE : EH_GFB_Admin::OPT_CONTENT_SOURCE;
+        $value  = (string) get_option( $option, self::SOURCE_GOOGLE_SHEETS );
+
+        return in_array( $value, array( self::SOURCE_GOOGLE_SHEETS, self::SOURCE_UPLOADED_CSV ), true )
+            ? $value
+            : self::SOURCE_GOOGLE_SHEETS;
+    }
+
+    public function get_source_label( string $type ) : string {
+        return ( self::SOURCE_UPLOADED_CSV === $this->get_source_mode( $type ) )
+            ? __( 'Uploaded CSV', 'event-horizon-gf-blacklist' )
+            : __( 'Google Sheet', 'event-horizon-gf-blacklist' );
+    }
+
+    private function is_allowed_google_sheets_csv_url( string $url ) : bool {
+        $parts = wp_parse_url( $url );
+        if ( ! is_array( $parts ) ) {
             return false;
         }
 
-        $scheme = strtolower((string) ($parts['scheme'] ?? ''));
-        $host   = strtolower((string) ($parts['host'] ?? ''));
-        $path   = (string) ($parts['path'] ?? '');
-        $query  = (string) ($parts['query'] ?? '');
+        $scheme = strtolower( (string) ( $parts['scheme'] ?? '' ) );
+        $host   = strtolower( (string) ( $parts['host'] ?? '' ) );
+        $path   = (string) ( $parts['path'] ?? '' );
+        $query  = (string) ( $parts['query'] ?? '' );
 
-        if ($scheme !== 'https') {
+        if ( 'https' !== $scheme ) {
             return false;
         }
 
-        if ($host !== 'docs.google.com') {
+        if ( 'docs.google.com' !== $host ) {
             return false;
         }
 
-        // Require the standard Sheets export path
-        if (! preg_match('#^/spreadsheets/d/[^/]+/export$#', $path)) {
+        if ( ! preg_match( '#^/spreadsheets/d/[^/]+/export$#', $path ) ) {
             return false;
         }
 
-        parse_str($query, $params);
+        parse_str( $query, $params );
 
-        // Must explicitly be CSV export
-        if (strtolower((string) ($params['format'] ?? '')) !== 'csv') {
+        if ( 'csv' !== strtolower( (string) ( $params['format'] ?? '' ) ) ) {
             return false;
         }
 
         return true;
     }
 
-    private function sync_one(string $type, string $url, bool $force, int $has_header): bool
-    {
-        $url = trim($url);
+    private function sync_one( string $type, bool $force ) : bool {
+        $header_option = ( 'email' === $type ) ? EH_GFB_Admin::OPT_EMAIL_HEADER : EH_GFB_Admin::OPT_CONTENT_HEADER;
+        $has_header    = (int) get_option( $header_option, 1 );
+        $source_mode   = $this->get_source_mode( $type );
 
-        if ($url === '') {
+        if ( self::SOURCE_UPLOADED_CSV === $source_mode ) {
+            return $this->sync_uploaded_csv( $type, $has_header );
+        }
+
+        $url_option = ( 'email' === $type ) ? EH_GFB_Admin::OPT_EMAIL_URL : EH_GFB_Admin::OPT_CONTENT_URL;
+        $url        = trim( (string) get_option( $url_option, '' ) );
+
+        return $this->sync_remote_csv( $type, $url, $force, $has_header );
+    }
+
+    private function sync_remote_csv( string $type, string $url, bool $force, int $has_header ) : bool {
+        if ( '' === $url ) {
             return true;
-        } // Not configured: not an error.
+        }
 
-        // Only allow Google Sheets CSV URLs over
-        if (! $this->is_allowed_google_sheets_csv_url($url)) {
-            $this->logger->log_event(
-                'error',
-                $type,
-                0,
-                0,
-                '',
-                '',
-                'CSV URL must be a valid Google Sheets export URL.'
-            );
+        if ( ! $this->is_allowed_google_sheets_csv_url( $url ) ) {
+            $this->logger->log_event( 'error', $type, 0, 0, '', '', 'CSV URL must be a valid Google Sheets export URL.' );
             return false;
         }
 
-        $opt = ($type === 'email') ? self::OPT_CACHE_EMAIL : self::OPT_CACHE_CONTENT;
-        $cache = get_option($opt, array());
+        $opt     = ( 'email' === $type ) ? self::OPT_CACHE_EMAIL : self::OPT_CACHE_CONTENT;
+        $cache   = get_option( $opt, array() );
         $headers = array();
 
-        if (! $force) {
-            if (! empty($cache['etag'])) {
+        if ( ! $force ) {
+            if ( ! empty( $cache['etag'] ) ) {
                 $headers['If-None-Match'] = (string) $cache['etag'];
             }
-            if (! empty($cache['last_modified'])) {
+            if ( ! empty( $cache['last_modified'] ) ) {
                 $headers['If-Modified-Since'] = (string) $cache['last_modified'];
             }
         }
 
         $args = array(
-            'timeout' => 10,
+            'timeout'     => 10,
             'redirection' => 5,
-            'headers' => $headers,
-            'user-agent' => 'EventHorizonGFBlacklist/' . EH_GFB_VERSION . '; ' . home_url('/'),
+            'headers'     => $headers,
+            'user-agent'  => 'EventHorizonGFBlacklist/' . EH_GFB_VERSION . '; ' . home_url( '/' ),
         );
 
-        $response = wp_safe_remote_get($url, $args);
-        if (is_wp_error($response)) {
-            $this->logger->log_event('error', $type, 0, 0, '', '', 'Sync failed: ' . $response->get_error_message());
+        $response = wp_safe_remote_get( $url, $args );
+        if ( is_wp_error( $response ) ) {
+            $this->logger->log_event( 'error', $type, 0, 0, '', '', 'Sync failed: ' . $response->get_error_message() );
             return false;
         }
 
-        $code = (int) wp_remote_retrieve_response_code($response);
+        $code = (int) wp_remote_retrieve_response_code( $response );
 
-        if ($code === 304) {
-            // Not modified - touch timestamp.
+        if ( 304 === $code ) {
             $cache['fetched_at'] = time();
-            update_option($opt, $cache, false);
-            $this->logger->log_event('sync', $type, 0, 0, '', '', 'Not modified (304), cache retained.');
+            update_option( $opt, $cache, false );
+            $this->logger->log_event( 'sync', $type, 0, 0, '', '', 'Google Sheets CSV not modified; cache retained.' );
             return true;
         }
 
-        if ($code < 200 || $code >= 300) {
-            $this->logger->log_event('error', $type, 0, 0, '', '', 'Sync failed HTTP ' . $code);
+        if ( $code < 200 || $code >= 300 ) {
+            $this->logger->log_event( 'error', $type, 0, 0, '', '', 'Sync failed HTTP ' . $code );
             return false;
         }
 
-        $body = (string) wp_remote_retrieve_body($response);
-
-        // Prevent extremely large CSV downloads
-        if (strlen($body) > 500000) { // 500KB
-            $this->logger->log_event(
-                'error',
-                $type,
-                0,
-                0,
-                '',
-                '',
-                'CSV file exceeded 500KB safety limit.'
-            );
+        $body = (string) wp_remote_retrieve_body( $response );
+        if ( strlen( $body ) > 500000 ) {
+            $this->logger->log_event( 'error', $type, 0, 0, '', '', 'CSV file exceeded 500KB safety limit.' );
             return false;
         }
 
-        $rules = $this->parse_csv_rules($body, $has_header);
+        $rules = $this->parse_csv_rules( $body, $has_header );
 
-        $new_cache = array(
-            'rules' => $rules,
-            'etag' => wp_remote_retrieve_header($response, 'etag'),
-            'last_modified' => wp_remote_retrieve_header($response, 'last-modified'),
-            'fetched_at' => time(),
-            'url_hash' => md5($url),
+        $meta = array(
+            'etag'          => wp_remote_retrieve_header( $response, 'etag' ),
+            'last_modified' => wp_remote_retrieve_header( $response, 'last-modified' ),
+            'url_hash'      => md5( $url ),
+            'source_mode'   => self::SOURCE_GOOGLE_SHEETS,
+            'source_label'  => 'google_sheets',
         );
 
-        update_option($opt, $new_cache, false);
+        return $this->store_rules(
+            $type,
+            $rules,
+            $meta,
+            sprintf( 'Fetched %d rule(s) from Google Sheets.', count( $rules ) )
+        );
+    }
 
-        $this->logger->log_event('sync', $type, 0, 0, '', '', sprintf('Fetched %d rule(s).', count($rules)));
+    private function sync_uploaded_csv( string $type, int $has_header ) : bool {
+        $file = $this->get_uploaded_csv_details( $type );
+        if ( empty( $file['path'] ) ) {
+            return true;
+        }
+
+        $path = (string) $file['path'];
+        if ( ! file_exists( $path ) || ! is_readable( $path ) ) {
+            $this->logger->log_event( 'error', $type, 0, 0, '', '', 'Uploaded CSV file is missing or unreadable.' );
+            return false;
+        }
+
+        $size = @filesize( $path );
+        if ( is_int( $size ) && $size > 500000 ) {
+            $this->logger->log_event( 'error', $type, 0, 0, '', '', 'CSV file exceeded 500KB safety limit.' );
+            return false;
+        }
+
+        $body = file_get_contents( $path );
+        if ( false === $body ) {
+            $this->logger->log_event( 'error', $type, 0, 0, '', '', 'Failed to read uploaded CSV file.' );
+            return false;
+        }
+
+        if ( strlen( $body ) > 500000 ) {
+            $this->logger->log_event( 'error', $type, 0, 0, '', '', 'CSV file exceeded 500KB safety limit.' );
+            return false;
+        }
+
+        $rules = $this->parse_csv_rules( $body, $has_header );
+        $mtime = @filemtime( $path );
+        $hash  = @md5_file( $path );
+
+        $meta = array(
+            'etag'          => '',
+            'last_modified' => $mtime ? gmdate( 'D, d M Y H:i:s', $mtime ) . ' GMT' : '',
+            'file_hash'     => $hash ? $hash : '',
+            'source_mode'   => self::SOURCE_UPLOADED_CSV,
+            'source_label'  => 'uploaded_csv',
+            'file_name'     => (string) ( $file['name'] ?? '' ),
+        );
+
+        return $this->store_rules(
+            $type,
+            $rules,
+            $meta,
+            sprintf( 'Imported %d rule(s) from uploaded CSV.', count( $rules ) )
+        );
+    }
+
+    private function store_rules( string $type, array $rules, array $meta, string $message ) : bool {
+        $opt = ( 'email' === $type ) ? self::OPT_CACHE_EMAIL : self::OPT_CACHE_CONTENT;
+
+        $cache = array_merge(
+            array(
+                'rules'         => array(),
+                'etag'          => '',
+                'last_modified' => '',
+                'fetched_at'    => time(),
+            ),
+            $meta,
+            array(
+                'rules'      => $rules,
+                'fetched_at' => time(),
+            )
+        );
+
+        update_option( $opt, $cache, false );
+        $this->logger->log_event( 'sync', $type, 0, 0, '', '', $message );
+
         return true;
     }
 
-    private function parse_csv_rules(string $csv, int $has_header): array
-    {
-        $csv = trim($csv);
-        if ($csv === '') {
+    private function get_uploaded_csv_details( string $type ) : array {
+        $option = ( 'email' === $type ) ? EH_GFB_Admin::OPT_EMAIL_FILE : EH_GFB_Admin::OPT_CONTENT_FILE;
+        $file   = get_option( $option, array() );
+
+        return is_array( $file ) ? $file : array();
+    }
+
+    private function get_source_warnings( string $type ) : array {
+        $label = ( 'email' === $type )
+            ? __( 'Email', 'event-horizon-gf-blacklist' )
+            : __( 'Content', 'event-horizon-gf-blacklist' );
+
+        if ( self::SOURCE_UPLOADED_CSV === $this->get_source_mode( $type ) ) {
+            $file = $this->get_uploaded_csv_details( $type );
+
+            if ( empty( $file['path'] ) ) {
+                return array( sprintf( __( '%s uploaded CSV is not set.', 'event-horizon-gf-blacklist' ), $label ) );
+            }
+
+            if ( ! file_exists( (string) $file['path'] ) ) {
+                return array( sprintf( __( '%s uploaded CSV file is missing.', 'event-horizon-gf-blacklist' ), $label ) );
+            }
+
             return array();
         }
 
-        // Normalize newlines.
-        $csv = preg_replace("/\r\n?/", "\n", $csv);
+        $url_option = ( 'email' === $type ) ? EH_GFB_Admin::OPT_EMAIL_URL : EH_GFB_Admin::OPT_CONTENT_URL;
+        if ( empty( get_option( $url_option, '' ) ) ) {
+            return array( sprintf( __( '%s Google Sheets CSV URL is not set.', 'event-horizon-gf-blacklist' ), $label ) );
+        }
 
-        $lines = explode("\n", $csv);
+        return array();
+    }
+
+    private function parse_csv_rules( string $csv, int $has_header ) : array {
+        $csv = trim( $csv );
+        if ( '' === $csv ) {
+            return array();
+        }
+
+        $csv = preg_replace( "/\r\n?/", "\n", $csv );
+        $lines = explode( "\n", $csv );
         $rules = array();
         $row_index = 0;
 
-        foreach ($lines as $line) {
-
-            // Skip suspiciously long lines
-            if (strlen($line) > 2000) {
+        foreach ( $lines as $line ) {
+            if ( strlen( $line ) > 2000 ) {
                 continue;
             }
 
-            $row_index++;
-            if ($line === '') {
+            ++$row_index;
+            if ( '' === $line ) {
                 continue;
             }
 
-            $cols = str_getcsv($line);
-            if (empty($cols)) {
+            $cols = str_getcsv( $line );
+            if ( empty( $cols ) ) {
                 continue;
             }
 
-            $value = sanitize_text_field(trim((string) $cols[0]));
-            $value = preg_replace('/\s+/', ' ', $value);
+            $value = sanitize_text_field( trim( (string) $cols[0] ) );
+            $value = preg_replace( '/\s+/', ' ', $value );
 
-            // Prevent too long strings
-            if (strlen($value) > 512) {
+            if ( strlen( $value ) > 512 ) {
                 continue;
             }
 
-            // Prevent formula injection
-            if (preg_match('/^[=+\-@]/', $value)) {
+            if ( preg_match( '/^[=+\-@]/', $value ) ) {
                 $value = "'" . $value;
             }
 
-            if ($value === '') {
+            if ( '' === $value ) {
                 continue;
             }
 
-            if ($has_header && $row_index === 1) {
+            if ( $has_header && 1 === $row_index ) {
                 continue;
             }
 
-            // Ignore comment rows
-            if (preg_match('/^\s*(#|\/\/)/', $value)) {
+            if ( preg_match( '/^\s*(#|\/\/)/', $value ) ) {
                 continue;
             }
 
             $rules[] = $value;
         }
 
-        // Deduplicate while preserving order (case-insensitive)
         $seen = array();
         $deduped = array();
-        foreach ($rules as $r) {
-            $k = strtolower($r);
-            if (isset($seen[$k])) {
+        foreach ( $rules as $rule ) {
+            $key = strtolower( $rule );
+            if ( isset( $seen[ $key ] ) ) {
                 continue;
             }
-            $seen[$k] = true;
-            $deduped[] = $r;
+            $seen[ $key ] = true;
+            $deduped[] = $rule;
         }
 
-        // Hard safety limit to prevent memory abuse
-        if (count($deduped) > 10000) {
-            $deduped = array_slice($deduped, 0, 10000);
+        if ( count( $deduped ) > 10000 ) {
+            $deduped = array_slice( $deduped, 0, 10000 );
         }
 
         return $deduped;

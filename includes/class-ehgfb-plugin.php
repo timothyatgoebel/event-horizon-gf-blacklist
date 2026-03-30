@@ -70,7 +70,7 @@ final class EH_GFB_Plugin {
 
         // Ensure schedules exist and events are registered.
         $sync = new EH_GFB_Sync( new EH_GFB_Logger() );
-        $sync->ensure_cron_scheduled();
+        $sync->ensure_cron_scheduled( true );
         ( new EH_GFB_Logger() )->ensure_purge_scheduled();
     }
 

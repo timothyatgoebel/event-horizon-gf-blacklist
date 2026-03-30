@@ -7,8 +7,12 @@ class EH_GFB_Admin {
     const CAPABILITY = 'manage_options';
 
     // Options
+    const OPT_CONTENT_SOURCE  = 'ehgfb_content_source';
+    const OPT_EMAIL_SOURCE    = 'ehgfb_email_source';
     const OPT_CONTENT_URL     = 'ehgfb_content_sheet_url';
     const OPT_EMAIL_URL       = 'ehgfb_email_sheet_url';
+    const OPT_CONTENT_FILE    = 'ehgfb_content_csv_file';
+    const OPT_EMAIL_FILE      = 'ehgfb_email_csv_file';
     const OPT_BEHAVIOR        = 'ehgfb_spam_behavior';
     const OPT_BLOCK_MESSAGE   = 'ehgfb_block_message';
     const OPT_SYNC_INTERVAL   = 'ehgfb_sync_interval'; // in minutes
@@ -33,11 +37,10 @@ class EH_GFB_Admin {
         add_action( 'admin_menu', array( $this, 'register_menu' ) );
         add_action( 'admin_init', array( $this, 'register_settings' ) );
         add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_assets' ) );
+        add_action( 'admin_post_ehgfb_save_settings', array( $this, 'handle_save_settings' ) );
         add_action( 'admin_post_ehgfb_manual_sync', array( $this, 'handle_manual_sync' ) );
         add_action( 'admin_post_ehgfb_clear_lists', array( $this, 'handle_clear_lists' ) );
         add_action( 'admin_post_ehgfb_clear_logs', array( $this, 'handle_clear_logs' ) );
-        add_action( 'update_option_' . self::OPT_SYNC_INTERVAL, array( $this, 'handle_interval_change' ), 10, 2 );
-
     }
 
     public function register_menu() : void {
@@ -91,17 +94,9 @@ class EH_GFB_Admin {
     }
 
     public function register_settings() : void {
-        register_setting( 'ehgfb_settings', self::OPT_CONTENT_URL, array( $this, 'sanitize_url' ) );
-        register_setting( 'ehgfb_settings', self::OPT_EMAIL_URL, array( $this, 'sanitize_url' ) );
-        register_setting( 'ehgfb_settings', self::OPT_BEHAVIOR, array( $this, 'sanitize_behavior' ) );
-        register_setting( 'ehgfb_settings', self::OPT_BLOCK_MESSAGE, array( $this, 'sanitize_message' ) );
-        register_setting( 'ehgfb_settings', self::OPT_SYNC_INTERVAL, array( $this, 'sanitize_interval' ) );
-        register_setting( 'ehgfb_settings', self::OPT_LOG_ENABLED, array( $this, 'sanitize_bool' ) );
-        register_setting( 'ehgfb_settings', self::OPT_LOG_RETENTION, array( $this, 'sanitize_retention' ) );
-        register_setting( 'ehgfb_settings', self::OPT_CONTENT_HEADER, array( $this, 'sanitize_bool' ) );
-        register_setting( 'ehgfb_settings', self::OPT_EMAIL_HEADER, array( $this, 'sanitize_bool' ) );
-
         // Reasonable defaults
+        add_option( self::OPT_CONTENT_SOURCE, EH_GFB_Sync::SOURCE_GOOGLE_SHEETS );
+        add_option( self::OPT_EMAIL_SOURCE, EH_GFB_Sync::SOURCE_GOOGLE_SHEETS );
         add_option( self::OPT_BEHAVIOR, 'no_entry' );
         add_option( self::OPT_BLOCK_MESSAGE, __( 'Your submission was blocked.', 'event-horizon-gf-blacklist' ) );
         add_option( self::OPT_SYNC_INTERVAL, 60 ); // minutes
@@ -133,7 +128,7 @@ class EH_GFB_Admin {
                 <img class="ehgfb-logo" src="<?php echo esc_url( EH_GFB_PLUGIN_URL . 'logo.webp' ); ?>" alt="<?php esc_attr_e( 'Event Horizon', 'event-horizon-gf-blacklist' ); ?>" />
                 <div class="ehgfb-title">
                     <h1><?php esc_html_e( 'Event Horizon', 'event-horizon-gf-blacklist' ); ?></h1>
-                    <p class="description"><?php esc_html_e( 'Gravity Forms blacklist sync + enforcement.', 'event-horizon-gf-blacklist' ); ?></p>
+                    <p class="description"><?php esc_html_e( 'Gravity Forms blacklist import + enforcement.', 'event-horizon-gf-blacklist' ); ?></p>
                 </div>
             </div>
 
@@ -154,17 +149,7 @@ class EH_GFB_Admin {
 
             <?php $this->render_status_banner( $status ); ?>
 
-            <?php
-                // One-time notices.
-                if ( isset( $_GET['ehgfb_cleared'] ) ) {
-                    $which = sanitize_key( wp_unslash( $_GET['ehgfb_cleared'] ) );
-                    if ( in_array( $which, array( 'content', 'email', 'all' ), true ) ) {
-                        $label = ( $which === 'content' ) ? __( 'Content cache cleared.', 'event-horizon-gf-blacklist' )
-                            : ( $which === 'email' ? __( 'Email cache cleared.', 'event-horizon-gf-blacklist' ) : __( 'Both caches cleared.', 'event-horizon-gf-blacklist' ) );
-                        echo '<div class="notice notice-success inline"><p>' . esc_html( $label ) . '</p></div>';
-                    }
-                }
-            ?>
+            <?php $this->render_notices(); ?>
 
             <?php
                 if ( $tab === 'settings' ) { $this->render_settings(); }
@@ -176,10 +161,36 @@ class EH_GFB_Admin {
         <?php
     }
 
+    private function render_notices() : void {
+        if ( isset( $_GET['ehgfb_saved'] ) ) {
+            echo '<div class="notice notice-success inline"><p>' . esc_html__( 'Settings saved and blacklist sources refreshed.', 'event-horizon-gf-blacklist' ) . '</p></div>';
+        }
+
+        if ( isset( $_GET['ehgfb_synced'] ) ) {
+            $ok = '1' === sanitize_text_field( wp_unslash( $_GET['ehgfb_synced'] ) );
+            $message = $ok
+                ? __( 'Blacklist refresh completed.', 'event-horizon-gf-blacklist' )
+                : __( 'Blacklist refresh completed with errors. Check your settings and source files.', 'event-horizon-gf-blacklist' );
+            $class = $ok ? 'notice-success' : 'notice-warning';
+            echo '<div class="notice ' . esc_attr( $class ) . ' inline"><p>' . esc_html( $message ) . '</p></div>';
+        }
+
+        if ( isset( $_GET['ehgfb_cleared'] ) ) {
+            $which = sanitize_key( wp_unslash( $_GET['ehgfb_cleared'] ) );
+            if ( in_array( $which, array( 'content', 'email', 'all' ), true ) ) {
+                $label = ( 'content' === $which ) ? __( 'Content cache cleared.', 'event-horizon-gf-blacklist' )
+                    : ( ( 'email' === $which ) ? __( 'Email cache cleared.', 'event-horizon-gf-blacklist' ) : __( 'Both caches cleared.', 'event-horizon-gf-blacklist' ) );
+                echo '<div class="notice notice-success inline"><p>' . esc_html( $label ) . '</p></div>';
+            }
+        }
+    }
+
     private function render_lists() : void {
         $status = $this->sync->get_status();
         $content = $this->sync->get_cached_list( 'content' );
         $email   = $this->sync->get_cached_list( 'email' );
+        $content_source = $this->sync->get_source_label( 'content' );
+        $email_source   = $this->sync->get_source_label( 'email' );
 
         $user_id = get_current_user_id();
         $acked = $user_id ? (bool) get_user_meta( $user_id, self::USERMETA_LISTS_ACK, true ) : false;
@@ -214,15 +225,16 @@ class EH_GFB_Admin {
                 </form>
 
                 <div class="ehgfb-inline">
-                    <div><strong><?php esc_html_e( 'Last sync:', 'event-horizon-gf-blacklist' ); ?></strong> <?php echo esc_html( $status['last_sync_human'] ?? __( 'Never', 'event-horizon-gf-blacklist' ) ); ?></div>
+                    <div><strong><?php esc_html_e( 'Last refresh:', 'event-horizon-gf-blacklist' ); ?></strong> <?php echo esc_html( $status['last_sync_human'] ?? __( 'Never', 'event-horizon-gf-blacklist' ) ); ?></div>
                     <div style="margin-left:16px;"><strong><?php esc_html_e( 'Rows cached:', 'event-horizon-gf-blacklist' ); ?></strong> <?php echo esc_html( (int) count( $content ) . ' content, ' . (int) count( $email ) . ' email' ); ?></div>
+                    <div style="margin-left:16px;"><strong><?php esc_html_e( 'Sources:', 'event-horizon-gf-blacklist' ); ?></strong> <?php echo esc_html( $content_source . ' / ' . $email_source ); ?></div>
                 </div>
 
                 <hr class="ehgfb-hr" />
 
                 <h3 style="margin-top:0;"><?php esc_html_e( 'Clear cached lists', 'event-horizon-gf-blacklist' ); ?></h3>
                 <p class="description">
-                    <?php esc_html_e( 'This clears the cached rules stored in WordPress. It does not modify your Google Sheet. After clearing, matches will stop until the next sync.', 'event-horizon-gf-blacklist' ); ?>
+                    <?php esc_html_e( 'This clears the cached rules stored in WordPress. It does not modify the configured Google Sheet or uploaded CSV file. After clearing, matches will stop until the next refresh.', 'event-horizon-gf-blacklist' ); ?>
                 </p>
                 <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="ehgfb-inline" style="gap:8px; align-items:center;">
                     <?php wp_nonce_field( 'ehgfb_clear_lists' ); ?>
@@ -260,7 +272,8 @@ class EH_GFB_Admin {
 
     private function render_status_banner( array $status ) : void {
         $last_sync = ! empty( $status['last_sync_human'] ) ? $status['last_sync_human'] : __( 'Never', 'event-horizon-gf-blacklist' );
-        $next_sync = ! empty( $status['next_sync_human'] ) ? $status['next_sync_human'] : __( 'Not scheduled', 'event-horizon-gf-blacklist' );
+        $cron_enabled = ! empty( $status['cron_enabled'] );
+        $next_sync = ( $cron_enabled && ! empty( $status['next_sync_human'] ) ) ? $status['next_sync_human'] : __( 'Not scheduled', 'event-horizon-gf-blacklist' );
         $content_count = (int) ( $status['content_count'] ?? 0 );
         $email_count   = (int) ( $status['email_count'] ?? 0 );
         $warnings      = $status['warnings'] ?? array();
@@ -268,17 +281,23 @@ class EH_GFB_Admin {
         ?>
         <div class="ehgfb-status-card">
             <div class="ehgfb-status-row">
-                <div><strong><?php esc_html_e( 'Last sync:', 'event-horizon-gf-blacklist' ); ?></strong> <?php echo esc_html( $last_sync ); ?></div>
+                <div><strong><?php esc_html_e( 'Last refresh:', 'event-horizon-gf-blacklist' ); ?></strong> <?php echo esc_html( $last_sync ); ?></div>
                 <div><strong><?php esc_html_e( 'Next sync:', 'event-horizon-gf-blacklist' ); ?></strong> <?php echo esc_html( $next_sync ); ?></div>
                 <div><strong><?php esc_html_e( 'Cached rows:', 'event-horizon-gf-blacklist' ); ?></strong> <?php echo esc_html( $content_count . ' content, ' . $email_count . ' email' ); ?></div>
                 <div class="ehgfb-status-actions">
                     <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
                         <?php wp_nonce_field( 'ehgfb_manual_sync' ); ?>
                         <input type="hidden" name="action" value="ehgfb_manual_sync" />
-                        <button type="submit" class="button button-primary"><?php esc_html_e( 'Sync now', 'event-horizon-gf-blacklist' ); ?></button>
+                        <button type="submit" class="button button-primary"><?php esc_html_e( 'Refresh now', 'event-horizon-gf-blacklist' ); ?></button>
                     </form>
                 </div>
             </div>
+
+            <?php if ( ! $cron_enabled ) : ?>
+                <p class="description" style="margin:10px 0 0;">
+                    <?php esc_html_e( 'Scheduled sync is disabled because both blacklist sources are using uploaded CSV files.', 'event-horizon-gf-blacklist' ); ?>
+                </p>
+            <?php endif; ?>
 
             <?php if ( ! empty( $warnings ) ) : ?>
                 <div class="notice notice-warning inline"><p>
@@ -290,42 +309,86 @@ class EH_GFB_Admin {
     }
 
     private function render_settings() : void {
-        $content_url = get_option( self::OPT_CONTENT_URL, '' );
-        $email_url   = get_option( self::OPT_EMAIL_URL, '' );
-        $behavior    = get_option( self::OPT_BEHAVIOR, 'no_entry' );
-        $message     = get_option( self::OPT_BLOCK_MESSAGE, __( 'Your submission was blocked.', 'event-horizon-gf-blacklist' ) );
-        $interval    = (int) get_option( self::OPT_SYNC_INTERVAL, 60 );
-        $log_enabled = (int) get_option( self::OPT_LOG_ENABLED, 1 );
-        $retention   = (int) get_option( self::OPT_LOG_RETENTION, 30 );
+        $content_source = get_option( self::OPT_CONTENT_SOURCE, EH_GFB_Sync::SOURCE_GOOGLE_SHEETS );
+        $email_source   = get_option( self::OPT_EMAIL_SOURCE, EH_GFB_Sync::SOURCE_GOOGLE_SHEETS );
+        $content_url    = get_option( self::OPT_CONTENT_URL, '' );
+        $email_url      = get_option( self::OPT_EMAIL_URL, '' );
+        $content_file   = get_option( self::OPT_CONTENT_FILE, array() );
+        $email_file     = get_option( self::OPT_EMAIL_FILE, array() );
+        $behavior       = get_option( self::OPT_BEHAVIOR, 'no_entry' );
+        $message        = get_option( self::OPT_BLOCK_MESSAGE, __( 'Your submission was blocked.', 'event-horizon-gf-blacklist' ) );
+        $interval       = (int) get_option( self::OPT_SYNC_INTERVAL, 60 );
+        $log_enabled    = (int) get_option( self::OPT_LOG_ENABLED, 1 );
+        $retention      = (int) get_option( self::OPT_LOG_RETENTION, 30 );
         $content_header = (int) get_option( self::OPT_CONTENT_HEADER, 1 );
         $email_header   = (int) get_option( self::OPT_EMAIL_HEADER, 1 );
 
         ?>
-        <form method="post" action="options.php" class="ehgfb-form">
-            <?php settings_fields( 'ehgfb_settings' ); ?>
+        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="ehgfb-form" enctype="multipart/form-data">
+            <?php wp_nonce_field( 'ehgfb_save_settings' ); ?>
+            <input type="hidden" name="action" value="ehgfb_save_settings" />
 
             <div class="ehgfb-grid">
                 <div class="ehgfb-card">
-                    <h2><?php esc_html_e( 'Google Sheets (CSV links)', 'event-horizon-gf-blacklist' ); ?></h2>
-                    <p class="description"><?php esc_html_e( 'Provide a public (or access-controlled) CSV export link for each sheet.', 'event-horizon-gf-blacklist' ); ?></p>
+                    <h2><?php esc_html_e( 'Blacklist sources', 'event-horizon-gf-blacklist' ); ?></h2>
+                    <p class="description"><?php esc_html_e( 'Choose a Google Sheets CSV export or upload your own CSV file for each blacklist.', 'event-horizon-gf-blacklist' ); ?></p>
 
-                    <label class="ehgfb-label" for="ehgfb_content_sheet_url"><?php esc_html_e( 'Content blacklist CSV URL', 'event-horizon-gf-blacklist' ); ?></label>
-                    <input class="regular-text ehgfb-input" type="url" id="ehgfb_content_sheet_url" name="<?php echo esc_attr( self::OPT_CONTENT_URL ); ?>" value="<?php echo esc_attr( $content_url ); ?>" placeholder="https://docs.google.com/spreadsheets/d/.../export?format=csv&gid=..." />
+                    <div class="ehgfb-source-grid">
+                        <div class="ehgfb-source-panel">
+                            <label class="ehgfb-label" for="ehgfb_content_source"><?php esc_html_e( 'Content blacklist source', 'event-horizon-gf-blacklist' ); ?></label>
+                            <select id="ehgfb_content_source" name="<?php echo esc_attr( self::OPT_CONTENT_SOURCE ); ?>" class="ehgfb-input">
+                                <option value="<?php echo esc_attr( EH_GFB_Sync::SOURCE_GOOGLE_SHEETS ); ?>" <?php selected( $content_source, EH_GFB_Sync::SOURCE_GOOGLE_SHEETS ); ?>><?php esc_html_e( 'Google Sheet CSV URL', 'event-horizon-gf-blacklist' ); ?></option>
+                                <option value="<?php echo esc_attr( EH_GFB_Sync::SOURCE_UPLOADED_CSV ); ?>" <?php selected( $content_source, EH_GFB_Sync::SOURCE_UPLOADED_CSV ); ?>><?php esc_html_e( 'Uploaded CSV file', 'event-horizon-gf-blacklist' ); ?></option>
+                            </select>
 
-                    <label class="ehgfb-label" for="ehgfb_email_sheet_url"><?php esc_html_e( 'Email blacklist CSV URL', 'event-horizon-gf-blacklist' ); ?></label>
-                    <input class="regular-text ehgfb-input" type="url" id="ehgfb_email_sheet_url" name="<?php echo esc_attr( self::OPT_EMAIL_URL ); ?>" value="<?php echo esc_attr( $email_url ); ?>" placeholder="https://docs.google.com/spreadsheets/d/.../export?format=csv&gid=..." />
+                            <label class="ehgfb-label" for="ehgfb_content_sheet_url"><?php esc_html_e( 'Content blacklist CSV URL', 'event-horizon-gf-blacklist' ); ?></label>
+                            <input class="regular-text ehgfb-input" type="url" id="ehgfb_content_sheet_url" name="<?php echo esc_attr( self::OPT_CONTENT_URL ); ?>" value="<?php echo esc_attr( $content_url ); ?>" placeholder="https://docs.google.com/spreadsheets/d/.../export?format=csv&gid=..." />
 
-                    <div class="ehgfb-inline">
-                        <label>
-                            <input type="checkbox" name="<?php echo esc_attr( self::OPT_CONTENT_HEADER ); ?>" value="1" <?php checked( $content_header, 1 ); ?> />
-                            <?php esc_html_e( 'First row is a header (content sheet)', 'event-horizon-gf-blacklist' ); ?>
-                        </label>
-                    </div>
-                    <div class="ehgfb-inline">
-                        <label>
-                            <input type="checkbox" name="<?php echo esc_attr( self::OPT_EMAIL_HEADER ); ?>" value="1" <?php checked( $email_header, 1 ); ?> />
-                            <?php esc_html_e( 'First row is a header (email sheet)', 'event-horizon-gf-blacklist' ); ?>
-                        </label>
+                            <label class="ehgfb-label" for="ehgfb_content_csv_file"><?php esc_html_e( 'Upload content CSV', 'event-horizon-gf-blacklist' ); ?></label>
+                            <input class="ehgfb-input" type="file" id="ehgfb_content_csv_file" name="ehgfb_content_csv_upload" accept=".csv,text/csv" />
+                            <?php if ( ! empty( $content_file['name'] ) ) : ?>
+                                <p class="description"><?php echo esc_html( sprintf( __( 'Current file: %s', 'event-horizon-gf-blacklist' ), (string) $content_file['name'] ) ); ?></p>
+                            <?php endif; ?>
+                            <label class="ehgfb-inline">
+                                <input type="checkbox" name="ehgfb_content_csv_remove" value="1" />
+                                <?php esc_html_e( 'Remove uploaded content CSV', 'event-horizon-gf-blacklist' ); ?>
+                            </label>
+
+                            <div class="ehgfb-inline">
+                                <label>
+                                    <input type="checkbox" name="<?php echo esc_attr( self::OPT_CONTENT_HEADER ); ?>" value="1" <?php checked( $content_header, 1 ); ?> />
+                                    <?php esc_html_e( 'First row is a header (content list)', 'event-horizon-gf-blacklist' ); ?>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="ehgfb-source-panel">
+                            <label class="ehgfb-label" for="ehgfb_email_source"><?php esc_html_e( 'Email blacklist source', 'event-horizon-gf-blacklist' ); ?></label>
+                            <select id="ehgfb_email_source" name="<?php echo esc_attr( self::OPT_EMAIL_SOURCE ); ?>" class="ehgfb-input">
+                                <option value="<?php echo esc_attr( EH_GFB_Sync::SOURCE_GOOGLE_SHEETS ); ?>" <?php selected( $email_source, EH_GFB_Sync::SOURCE_GOOGLE_SHEETS ); ?>><?php esc_html_e( 'Google Sheet CSV URL', 'event-horizon-gf-blacklist' ); ?></option>
+                                <option value="<?php echo esc_attr( EH_GFB_Sync::SOURCE_UPLOADED_CSV ); ?>" <?php selected( $email_source, EH_GFB_Sync::SOURCE_UPLOADED_CSV ); ?>><?php esc_html_e( 'Uploaded CSV file', 'event-horizon-gf-blacklist' ); ?></option>
+                            </select>
+
+                            <label class="ehgfb-label" for="ehgfb_email_sheet_url"><?php esc_html_e( 'Email blacklist CSV URL', 'event-horizon-gf-blacklist' ); ?></label>
+                            <input class="regular-text ehgfb-input" type="url" id="ehgfb_email_sheet_url" name="<?php echo esc_attr( self::OPT_EMAIL_URL ); ?>" value="<?php echo esc_attr( $email_url ); ?>" placeholder="https://docs.google.com/spreadsheets/d/.../export?format=csv&gid=..." />
+
+                            <label class="ehgfb-label" for="ehgfb_email_csv_file"><?php esc_html_e( 'Upload email CSV', 'event-horizon-gf-blacklist' ); ?></label>
+                            <input class="ehgfb-input" type="file" id="ehgfb_email_csv_file" name="ehgfb_email_csv_upload" accept=".csv,text/csv" />
+                            <?php if ( ! empty( $email_file['name'] ) ) : ?>
+                                <p class="description"><?php echo esc_html( sprintf( __( 'Current file: %s', 'event-horizon-gf-blacklist' ), (string) $email_file['name'] ) ); ?></p>
+                            <?php endif; ?>
+                            <label class="ehgfb-inline">
+                                <input type="checkbox" name="ehgfb_email_csv_remove" value="1" />
+                                <?php esc_html_e( 'Remove uploaded email CSV', 'event-horizon-gf-blacklist' ); ?>
+                            </label>
+
+                            <div class="ehgfb-inline">
+                                <label>
+                                    <input type="checkbox" name="<?php echo esc_attr( self::OPT_EMAIL_HEADER ); ?>" value="1" <?php checked( $email_header, 1 ); ?> />
+                                    <?php esc_html_e( 'First row is a header (email list)', 'event-horizon-gf-blacklist' ); ?>
+                                </label>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -345,7 +408,7 @@ class EH_GFB_Admin {
 
                     <label class="ehgfb-label" for="ehgfb_sync_interval"><?php esc_html_e( 'Sync interval (minutes)', 'event-horizon-gf-blacklist' ); ?></label>
                     <input type="number" min="5" max="1440" step="5" id="ehgfb_sync_interval" name="<?php echo esc_attr( self::OPT_SYNC_INTERVAL ); ?>" value="<?php echo esc_attr( $interval ); ?>" class="small-text ehgfb-input" />
-                    <p class="description"><?php esc_html_e( 'Uses WP-Cron. If the site has low traffic, syncs may occur less frequently than scheduled.', 'event-horizon-gf-blacklist' ); ?></p>
+                    <p class="description"><?php esc_html_e( 'Uses WP-Cron when at least one blacklist source is a Google Sheet. Uploaded CSV sources are refreshed only when you save settings or click Refresh now.', 'event-horizon-gf-blacklist' ); ?></p>
 
                     <hr class="ehgfb-hr" />
 
@@ -390,8 +453,8 @@ class EH_GFB_Admin {
             <h2><?php esc_html_e( 'Metrics (last 30 days)', 'event-horizon-gf-blacklist' ); ?></h2>
             <div class="ehgfb-metrics">
                 <div class="ehgfb-metric"><span class="ehgfb-metric-num"><?php echo esc_html( (string) ( $metrics['matches'] ?? 0 ) ); ?></span><span class="ehgfb-metric-label"><?php esc_html_e( 'Matches', 'event-horizon-gf-blacklist' ); ?></span></div>
-                <div class="ehgfb-metric"><span class="ehgfb-metric-num"><?php echo esc_html( (string) ( $metrics['sync_success'] ?? 0 ) ); ?></span><span class="ehgfb-metric-label"><?php esc_html_e( 'Successful syncs', 'event-horizon-gf-blacklist' ); ?></span></div>
-                <div class="ehgfb-metric"><span class="ehgfb-metric-num"><?php echo esc_html( (string) ( $metrics['sync_error'] ?? 0 ) ); ?></span><span class="ehgfb-metric-label"><?php esc_html_e( 'Sync errors', 'event-horizon-gf-blacklist' ); ?></span></div>
+                <div class="ehgfb-metric"><span class="ehgfb-metric-num"><?php echo esc_html( (string) ( $metrics['sync_success'] ?? 0 ) ); ?></span><span class="ehgfb-metric-label"><?php esc_html_e( 'Successful refreshes', 'event-horizon-gf-blacklist' ); ?></span></div>
+                <div class="ehgfb-metric"><span class="ehgfb-metric-num"><?php echo esc_html( (string) ( $metrics['sync_error'] ?? 0 ) ); ?></span><span class="ehgfb-metric-label"><?php esc_html_e( 'Refresh errors', 'event-horizon-gf-blacklist' ); ?></span></div>
             </div>
         </div>
 
@@ -460,7 +523,9 @@ class EH_GFB_Admin {
     private function render_help() : void {
         ?>
         <div class="ehgfb-card">
-            <h2><?php esc_html_e( 'How to get a Google Sheets CSV link', 'event-horizon-gf-blacklist' ); ?></h2>
+            <h2><?php esc_html_e( 'Import methods', 'event-horizon-gf-blacklist' ); ?></h2>
+            <p class="description"><?php esc_html_e( 'Each blacklist can use either a Google Sheets CSV export or an uploaded CSV file.', 'event-horizon-gf-blacklist' ); ?></p>
+            <h3><?php esc_html_e( 'Google Sheets CSV link', 'event-horizon-gf-blacklist' ); ?></h3>
             <ol class="ehgfb-ol">
                 <li><?php esc_html_e( 'Open your Google Sheet and click File → Share → Publish to web.', 'event-horizon-gf-blacklist' ); ?></li>
                 <li><?php esc_html_e( 'Choose the specific sheet/tab (not the entire document).', 'event-horizon-gf-blacklist' ); ?></li>
@@ -471,6 +536,14 @@ class EH_GFB_Admin {
                 <?php esc_html_e( 'Tip: If you prefer not to “Publish to web”, you can also use an export link in the format:', 'event-horizon-gf-blacklist' ); ?>
             </p>
             <p><code>https://docs.google.com/spreadsheets/d/&lt;SHEET_ID&gt;/export?format=csv&amp;gid=&lt;TAB_GID&gt;</code></p>
+
+            <h3><?php esc_html_e( 'Uploaded CSV file', 'event-horizon-gf-blacklist' ); ?></h3>
+            <ol class="ehgfb-ol">
+                <li><?php esc_html_e( 'On the Settings tab, change the blacklist source to Uploaded CSV file.', 'event-horizon-gf-blacklist' ); ?></li>
+                <li><?php esc_html_e( 'Choose a .csv file from your computer and save settings.', 'event-horizon-gf-blacklist' ); ?></li>
+                <li><?php esc_html_e( 'Use Refresh now after replacing a local CSV file if you want the cache updated immediately.', 'event-horizon-gf-blacklist' ); ?></li>
+            </ol>
+            <p class="description"><?php esc_html_e( 'When both blacklist sources use uploaded CSV files, scheduled remote sync is disabled.', 'event-horizon-gf-blacklist' ); ?></p>
 
             <hr class="ehgfb-hr" />
 
@@ -506,6 +579,36 @@ class EH_GFB_Admin {
             </ul>
         </div>
         <?php
+    }
+
+    public function handle_save_settings() : void {
+        if ( ! current_user_can( self::CAPABILITY ) ) { wp_die( 'Forbidden' ); }
+        check_admin_referer( 'ehgfb_save_settings' );
+
+        $old_interval = (int) get_option( self::OPT_SYNC_INTERVAL, 60 );
+
+        update_option( self::OPT_CONTENT_SOURCE, $this->sanitize_source( $_POST[ self::OPT_CONTENT_SOURCE ] ?? '' ) );
+        update_option( self::OPT_EMAIL_SOURCE, $this->sanitize_source( $_POST[ self::OPT_EMAIL_SOURCE ] ?? '' ) );
+        update_option( self::OPT_CONTENT_URL, $this->sanitize_url( $_POST[ self::OPT_CONTENT_URL ] ?? '' ) );
+        update_option( self::OPT_EMAIL_URL, $this->sanitize_url( $_POST[ self::OPT_EMAIL_URL ] ?? '' ) );
+        update_option( self::OPT_BEHAVIOR, $this->sanitize_behavior( $_POST[ self::OPT_BEHAVIOR ] ?? '' ) );
+        update_option( self::OPT_BLOCK_MESSAGE, $this->sanitize_message( $_POST[ self::OPT_BLOCK_MESSAGE ] ?? '' ) );
+
+        $new_interval = $this->sanitize_interval( $_POST[ self::OPT_SYNC_INTERVAL ] ?? 60 );
+        update_option( self::OPT_SYNC_INTERVAL, $new_interval );
+        update_option( self::OPT_LOG_ENABLED, $this->sanitize_bool( $_POST[ self::OPT_LOG_ENABLED ] ?? 0 ) );
+        update_option( self::OPT_LOG_RETENTION, $this->sanitize_retention( $_POST[ self::OPT_LOG_RETENTION ] ?? 30 ) );
+        update_option( self::OPT_CONTENT_HEADER, $this->sanitize_bool( $_POST[ self::OPT_CONTENT_HEADER ] ?? 0 ) );
+        update_option( self::OPT_EMAIL_HEADER, $this->sanitize_bool( $_POST[ self::OPT_EMAIL_HEADER ] ?? 0 ) );
+
+        $this->handle_uploaded_csv( 'content', 'ehgfb_content_csv_upload', ! empty( $_POST['ehgfb_content_csv_remove'] ) );
+        $this->handle_uploaded_csv( 'email', 'ehgfb_email_csv_upload', ! empty( $_POST['ehgfb_email_csv_remove'] ) );
+
+        $this->sync->ensure_cron_scheduled( $old_interval !== $new_interval );
+        $this->sync->sync_now( true );
+
+        wp_safe_redirect( admin_url( 'admin.php?page=' . self::MENU_SLUG . '&ehgfb_saved=1' ) );
+        exit;
     }
 
     public function handle_manual_sync() : void {
@@ -571,6 +674,13 @@ class EH_GFB_Admin {
         return esc_url_raw( $value );
     }
 
+    public function sanitize_source( $value ) : string {
+        $value = sanitize_key( (string) $value );
+        return in_array( $value, array( EH_GFB_Sync::SOURCE_GOOGLE_SHEETS, EH_GFB_Sync::SOURCE_UPLOADED_CSV ), true )
+            ? $value
+            : EH_GFB_Sync::SOURCE_GOOGLE_SHEETS;
+    }
+
     public function sanitize_behavior( $value ) : string {
         $value = sanitize_key( (string) $value );
         return in_array( $value, array( 'no_entry', 'spam' ), true ) ? $value : 'no_entry';
@@ -598,5 +708,62 @@ class EH_GFB_Admin {
         if ( $v < 1 ) { $v = 1; }
         if ( $v > 365 ) { $v = 365; }
         return $v;
+    }
+
+    private function handle_uploaded_csv( string $type, string $file_input, bool $remove_existing ) : void {
+        $option = ( 'email' === $type ) ? self::OPT_EMAIL_FILE : self::OPT_CONTENT_FILE;
+        $existing = get_option( $option, array() );
+
+        if ( $remove_existing && ! empty( $existing['path'] ) ) {
+            $path = (string) $existing['path'];
+            if ( file_exists( $path ) && is_writable( $path ) ) {
+                wp_delete_file( $path );
+            }
+            delete_option( $option );
+            $existing = array();
+        }
+
+        if ( empty( $_FILES[ $file_input ] ) || empty( $_FILES[ $file_input ]['name'] ) ) {
+            return;
+        }
+
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+
+        $file = $_FILES[ $file_input ];
+        $check = wp_check_filetype_and_ext( $file['tmp_name'], $file['name'] );
+        if ( empty( $check['ext'] ) || 'csv' !== strtolower( (string) $check['ext'] ) ) {
+            return;
+        }
+
+        $uploaded = wp_handle_upload(
+            $file,
+            array(
+                'test_form' => false,
+                'mimes'     => array(
+                    'csv' => 'text/csv',
+                ),
+            )
+        );
+
+        if ( ! empty( $uploaded['error'] ) || empty( $uploaded['file'] ) ) {
+            return;
+        }
+
+        if ( ! empty( $existing['path'] ) ) {
+            $old_path = (string) $existing['path'];
+            if ( file_exists( $old_path ) && is_writable( $old_path ) ) {
+                wp_delete_file( $old_path );
+            }
+        }
+
+        update_option(
+            $option,
+            array(
+                'path' => (string) $uploaded['file'],
+                'url'  => (string) ( $uploaded['url'] ?? '' ),
+                'name' => sanitize_file_name( (string) $file['name'] ),
+            ),
+            false
+        );
     }
 }
