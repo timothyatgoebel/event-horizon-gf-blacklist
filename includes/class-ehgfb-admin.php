@@ -41,6 +41,7 @@ class EH_GFB_Admin {
         add_action( 'admin_post_ehgfb_manual_sync', array( $this, 'handle_manual_sync' ) );
         add_action( 'admin_post_ehgfb_clear_lists', array( $this, 'handle_clear_lists' ) );
         add_action( 'admin_post_ehgfb_clear_logs', array( $this, 'handle_clear_logs' ) );
+        add_action( 'admin_post_ehgfb_url_fixer', array( $this, 'handle_url_fixer' ) );
     }
 
     public function register_menu() : void {
@@ -85,6 +86,15 @@ class EH_GFB_Admin {
 
         add_submenu_page(
             self::MENU_SLUG,
+            __( 'Tools', 'event-horizon-gf-blacklist' ),
+            __( 'Tools', 'event-horizon-gf-blacklist' ),
+            self::CAPABILITY,
+            self::MENU_SLUG . '-tools',
+            array( $this, 'render_page' )
+        );
+
+        add_submenu_page(
+            self::MENU_SLUG,
             __( 'Help', 'event-horizon-gf-blacklist' ),
             __( 'Help', 'event-horizon-gf-blacklist' ),
             self::CAPABILITY,
@@ -118,6 +128,7 @@ class EH_GFB_Admin {
         $tab = 'settings';
         if ( $screen === self::MENU_SLUG . '-lists' ) { $tab = 'lists'; }
         if ( $screen === self::MENU_SLUG . '-logs' ) { $tab = 'logs'; }
+        if ( $screen === self::MENU_SLUG . '-tools' ) { $tab = 'tools'; }
         if ( $screen === self::MENU_SLUG . '-help' ) { $tab = 'help'; }
 
         $status = $this->sync->get_status();
@@ -142,6 +153,9 @@ class EH_GFB_Admin {
                 <a class="nav-tab <?php echo $tab === 'logs' ? 'nav-tab-active' : ''; ?>" href="<?php echo esc_url( admin_url( 'admin.php?page=' . self::MENU_SLUG . '-logs' ) ); ?>">
                     <?php esc_html_e( 'Logs', 'event-horizon-gf-blacklist' ); ?>
                 </a>
+                <a class="nav-tab <?php echo $tab === 'tools' ? 'nav-tab-active' : ''; ?>" href="<?php echo esc_url( admin_url( 'admin.php?page=' . self::MENU_SLUG . '-tools' ) ); ?>">
+                    <?php esc_html_e( 'Tools', 'event-horizon-gf-blacklist' ); ?>
+                </a>
                 <a class="nav-tab <?php echo $tab === 'help' ? 'nav-tab-active' : ''; ?>" href="<?php echo esc_url( admin_url( 'admin.php?page=' . self::MENU_SLUG . '-help' ) ); ?>">
                     <?php esc_html_e( 'Help', 'event-horizon-gf-blacklist' ); ?>
                 </a>
@@ -155,6 +169,7 @@ class EH_GFB_Admin {
                 if ( $tab === 'settings' ) { $this->render_settings(); }
                 if ( $tab === 'lists' ) { $this->render_lists(); }
                 if ( $tab === 'logs' ) { $this->render_logs(); }
+                if ( $tab === 'tools' ) { $this->render_tools(); }
                 if ( $tab === 'help' ) { $this->render_help(); }
             ?>
         </div>
@@ -181,6 +196,21 @@ class EH_GFB_Admin {
                 $label = ( 'content' === $which ) ? __( 'Content cache cleared.', 'event-horizon-gf-blacklist' )
                     : ( ( 'email' === $which ) ? __( 'Email cache cleared.', 'event-horizon-gf-blacklist' ) : __( 'Both caches cleared.', 'event-horizon-gf-blacklist' ) );
                 echo '<div class="notice notice-success inline"><p>' . esc_html( $label ) . '</p></div>';
+            }
+        }
+
+        if ( isset( $_GET['ehgfb_url_fixer_status'] ) ) {
+            $status = sanitize_key( wp_unslash( $_GET['ehgfb_url_fixer_status'] ) );
+            $fixed  = isset( $_GET['ehgfb_url_fixer_result'] ) ? sanitize_text_field( wp_unslash( $_GET['ehgfb_url_fixer_result'] ) ) : '';
+
+            if ( 'invalid' === $status ) {
+                echo '<div class="notice notice-warning inline"><p>' . esc_html__( 'The URL Fixer could not detect a valid Google Sheets spreadsheet URL.', 'event-horizon-gf-blacklist' ) . '</p></div>';
+            } elseif ( 'content_set' === $status ) {
+                echo '<div class="notice notice-success inline"><p>' . esc_html__( 'CSV export URL generated and saved as the content blacklist URL.', 'event-horizon-gf-blacklist' ) . '</p></div>';
+            } elseif ( 'email_set' === $status ) {
+                echo '<div class="notice notice-success inline"><p>' . esc_html__( 'CSV export URL generated and saved as the email blacklist URL.', 'event-horizon-gf-blacklist' ) . '</p></div>';
+            } elseif ( 'converted' === $status && '' !== $fixed ) {
+                echo '<div class="notice notice-success inline"><p>' . esc_html__( 'CSV export URL generated successfully.', 'event-horizon-gf-blacklist' ) . '</p></div>';
             }
         }
     }
@@ -550,6 +580,60 @@ class EH_GFB_Admin {
         <?php
     }
 
+    private function render_tools() : void {
+        $source_url = isset( $_GET['ehgfb_url_fixer_source'] ) ? sanitize_text_field( wp_unslash( $_GET['ehgfb_url_fixer_source'] ) ) : '';
+        $fixed_url  = isset( $_GET['ehgfb_url_fixer_result'] ) ? sanitize_text_field( wp_unslash( $_GET['ehgfb_url_fixer_result'] ) ) : '';
+        ?>
+        <div class="ehgfb-card">
+            <h2><?php esc_html_e( 'URL Fixer', 'event-horizon-gf-blacklist' ); ?></h2>
+            <p class="description"><?php esc_html_e( 'Paste a normal Google Sheets URL and Event Horizon will convert it into the CSV export URL used by this plugin.', 'event-horizon-gf-blacklist' ); ?></p>
+
+            <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="ehgfb-form">
+                <?php wp_nonce_field( 'ehgfb_url_fixer' ); ?>
+                <input type="hidden" name="action" value="ehgfb_url_fixer" />
+
+                <label class="ehgfb-label" for="ehgfb_url_fixer_source"><?php esc_html_e( 'Google Sheets URL', 'event-horizon-gf-blacklist' ); ?></label>
+                <textarea id="ehgfb_url_fixer_source" name="ehgfb_url_fixer_source" class="large-text ehgfb-textarea ehgfb-mono" rows="3" placeholder="https://docs.google.com/spreadsheets/d/.../edit?gid=0#gid=0"><?php echo esc_textarea( $source_url ); ?></textarea>
+
+                <div class="ehgfb-tool-actions">
+                    <button type="submit" class="button button-primary" name="ehgfb_url_fixer_action" value="convert"><?php esc_html_e( 'Convert URL', 'event-horizon-gf-blacklist' ); ?></button>
+                    <?php if ( '' !== $fixed_url ) : ?>
+                        <button type="submit" class="button" name="ehgfb_url_fixer_action" value="set_content"><?php esc_html_e( 'Set As Content Blacklist URL', 'event-horizon-gf-blacklist' ); ?></button>
+                        <button type="submit" class="button" name="ehgfb_url_fixer_action" value="set_email"><?php esc_html_e( 'Set As Email Blacklist URL', 'event-horizon-gf-blacklist' ); ?></button>
+                    <?php endif; ?>
+                </div>
+            </form>
+
+            <?php if ( '' !== $fixed_url ) : ?>
+                <hr class="ehgfb-hr" />
+                <label class="ehgfb-label" for="ehgfb_url_fixer_result"><?php esc_html_e( 'CSV export URL', 'event-horizon-gf-blacklist' ); ?></label>
+                <div class="ehgfb-tool-result">
+                    <input id="ehgfb_url_fixer_result" type="text" class="regular-text ehgfb-input ehgfb-mono" value="<?php echo esc_attr( $fixed_url ); ?>" readonly />
+                    <button type="button" class="button" data-copy-target="ehgfb_url_fixer_result"><?php esc_html_e( 'Copy URL', 'event-horizon-gf-blacklist' ); ?></button>
+                </div>
+                <p class="description"><?php esc_html_e( 'You can copy this URL directly or use one of the buttons above to save it into the plugin settings.', 'event-horizon-gf-blacklist' ); ?></p>
+                <script type="text/javascript">
+                (function() {
+                    var button = document.querySelector('[data-copy-target="ehgfb_url_fixer_result"]');
+                    if (!button) { return; }
+                    button.addEventListener('click', function() {
+                        var target = document.getElementById(button.getAttribute('data-copy-target'));
+                        if (!target) { return; }
+                        target.select();
+                        target.setSelectionRange(0, target.value.length);
+                        if (navigator.clipboard && navigator.clipboard.writeText) {
+                            navigator.clipboard.writeText(target.value);
+                        } else {
+                            document.execCommand('copy');
+                        }
+                    });
+                })();
+                </script>
+            <?php endif; ?>
+        </div>
+        <?php
+    }
+
     private function render_help() : void {
         ?>
         <div class="ehgfb-card">
@@ -687,6 +771,42 @@ class EH_GFB_Admin {
         exit;
     }
 
+    public function handle_url_fixer() : void {
+        if ( ! current_user_can( self::CAPABILITY ) ) { wp_die( 'Forbidden' ); }
+        check_admin_referer( 'ehgfb_url_fixer' );
+
+        $source_url = isset( $_POST['ehgfb_url_fixer_source'] ) ? trim( sanitize_text_field( wp_unslash( $_POST['ehgfb_url_fixer_source'] ) ) ) : '';
+        $action     = isset( $_POST['ehgfb_url_fixer_action'] ) ? sanitize_key( wp_unslash( $_POST['ehgfb_url_fixer_action'] ) ) : 'convert';
+        $fixed_url  = $this->convert_google_sheet_url_to_csv_export( $source_url );
+
+        $redirect = admin_url( 'admin.php?page=' . self::MENU_SLUG . '-tools' );
+        $redirect = add_query_arg( 'ehgfb_url_fixer_source', $source_url, $redirect );
+
+        if ( '' === $fixed_url ) {
+            $redirect = add_query_arg( 'ehgfb_url_fixer_status', 'invalid', $redirect );
+            wp_safe_redirect( $redirect );
+            exit;
+        }
+
+        if ( 'set_content' === $action ) {
+            update_option( self::OPT_CONTENT_URL, $fixed_url );
+            update_option( self::OPT_CONTENT_SOURCE, EH_GFB_Sync::SOURCE_GOOGLE_SHEETS );
+            $this->sync->ensure_cron_scheduled( true );
+            $redirect = add_query_arg( 'ehgfb_url_fixer_status', 'content_set', $redirect );
+        } elseif ( 'set_email' === $action ) {
+            update_option( self::OPT_EMAIL_URL, $fixed_url );
+            update_option( self::OPT_EMAIL_SOURCE, EH_GFB_Sync::SOURCE_GOOGLE_SHEETS );
+            $this->sync->ensure_cron_scheduled( true );
+            $redirect = add_query_arg( 'ehgfb_url_fixer_status', 'email_set', $redirect );
+        } else {
+            $redirect = add_query_arg( 'ehgfb_url_fixer_status', 'converted', $redirect );
+        }
+
+        $redirect = add_query_arg( 'ehgfb_url_fixer_result', $fixed_url, $redirect );
+        wp_safe_redirect( $redirect );
+        exit;
+    }
+
     /**
      * When the sync interval changes, reschedule WP-Cron.
      */
@@ -738,6 +858,58 @@ class EH_GFB_Admin {
         if ( $v < 1 ) { $v = 1; }
         if ( $v > 365 ) { $v = 365; }
         return $v;
+    }
+
+    private function convert_google_sheet_url_to_csv_export( string $url ) : string {
+        if ( '' === $url ) {
+            return '';
+        }
+
+        $parts = wp_parse_url( $url );
+        if ( ! is_array( $parts ) ) {
+            return '';
+        }
+
+        $scheme = strtolower( (string) ( $parts['scheme'] ?? '' ) );
+        $host   = strtolower( (string) ( $parts['host'] ?? '' ) );
+        $path   = (string) ( $parts['path'] ?? '' );
+        $query  = (string) ( $parts['query'] ?? '' );
+        $fragment = (string) ( $parts['fragment'] ?? '' );
+
+        if ( '' === $scheme || '' === $host || 'docs.google.com' !== $host ) {
+            return '';
+        }
+
+        if ( ! preg_match( '#^/spreadsheets/d/([^/]+)(?:/.*)?$#', $path, $matches ) ) {
+            return '';
+        }
+
+        $sheet_id = $matches[1];
+        if ( '' === $sheet_id ) {
+            return '';
+        }
+
+        parse_str( $query, $query_params );
+        parse_str( $fragment, $fragment_params );
+
+        $gid = '';
+        if ( isset( $query_params['gid'] ) ) {
+            $gid = (string) $query_params['gid'];
+        } elseif ( isset( $fragment_params['gid'] ) ) {
+            $gid = (string) $fragment_params['gid'];
+        }
+
+        if ( '' === $gid ) {
+            $gid = '0';
+        }
+
+        $fixed = $scheme . '://docs.google.com/spreadsheets/d/' . rawurlencode( $sheet_id ) . '/export?format=csv&gid=' . rawurlencode( $gid );
+
+        if ( '' !== $fragment ) {
+            $fixed .= '#' . $fragment;
+        }
+
+        return $fixed;
     }
 
     private function handle_uploaded_csv( string $type, string $file_input, bool $remove_existing ) : void {

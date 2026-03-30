@@ -34,6 +34,8 @@ You can also use a direct export link:
 
 `https://docs.google.com/spreadsheets/d/<SHEET_ID>/export?format=csv&gid=<TAB_GID>`
 
+If you only have the normal Google Sheets sharing or edit URL, use the **Tools -> URL Fixer** tab inside the plugin to convert it into the CSV export URL automatically.
+
 ---
 
 ## Uploaded CSV Setup
