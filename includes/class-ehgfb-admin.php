@@ -163,6 +163,8 @@ class EH_GFB_Admin {
                 </a>
             </nav>
 
+            <?php $this->render_dependency_notice(); ?>
+
             <?php $this->render_status_banner( $status ); ?>
 
             <?php $this->render_notices(); ?>
@@ -174,6 +176,15 @@ class EH_GFB_Admin {
                 if ( $tab === 'tools' ) { $this->render_tools(); }
                 if ( $tab === 'help' ) { $this->render_help(); }
             ?>
+        </div>
+        <?php
+    }
+
+    private function render_dependency_notice() : void {
+        if ( $this->is_gravity_forms_available() ) { return; }
+        ?>
+        <div class="notice notice-warning">
+            <p><?php esc_html_e( 'Gravity Forms is not active. Event Horizon can still sync blacklist sources, but it will not protect any form submissions until Gravity Forms is installed and activated.', 'event-horizon-gf-blacklist' ); ?></p>
         </div>
         <?php
     }
@@ -331,6 +342,10 @@ class EH_GFB_Admin {
                 <div class="notice notice-warning inline"><p>
                     <?php echo esc_html( implode( ' | ', array_map( 'strval', $warnings ) ) ); ?>
                 </p></div>
+            <?php endif; ?>
+
+            <?php if ( ! $this->is_gravity_forms_available() ) : ?>
+                <div class="notice notice-warning inline"><p><?php esc_html_e( 'Field-level blacklist enforcement is inactive until Gravity Forms is available.', 'event-horizon-gf-blacklist' ); ?></p></div>
             <?php endif; ?>
         </div>
         <?php
@@ -613,10 +628,12 @@ class EH_GFB_Admin {
                     <input id="ehgfb_url_fixer_result" type="text" class="regular-text ehgfb-input ehgfb-mono" value="<?php echo esc_attr( $fixed_url ); ?>" readonly />
                     <button type="button" class="button" data-copy-target="ehgfb_url_fixer_result"><?php esc_html_e( 'Copy URL', 'event-horizon-gf-blacklist' ); ?></button>
                 </div>
+                <p class="description" id="ehgfb_url_fixer_copy_status" aria-live="polite"></p>
                 <p class="description"><?php esc_html_e( 'You can copy this URL directly or use one of the buttons above to save it into the plugin settings.', 'event-horizon-gf-blacklist' ); ?></p>
                 <script type="text/javascript">
                 (function() {
                     var button = document.querySelector('[data-copy-target="ehgfb_url_fixer_result"]');
+                    var status = document.getElementById('ehgfb_url_fixer_copy_status');
                     if (!button) { return; }
                     button.addEventListener('click', function() {
                         var target = document.getElementById(button.getAttribute('data-copy-target'));
@@ -624,9 +641,18 @@ class EH_GFB_Admin {
                         target.select();
                         target.setSelectionRange(0, target.value.length);
                         if (navigator.clipboard && navigator.clipboard.writeText) {
-                            navigator.clipboard.writeText(target.value);
+                            navigator.clipboard.writeText(target.value).then(function() {
+                                if (status) { status.textContent = 'CSV export URL copied to your clipboard.'; }
+                            }).catch(function() {
+                                if (status) { status.textContent = 'Copy failed. Select the URL manually and copy it from the field above.'; }
+                            });
                         } else {
-                            document.execCommand('copy');
+                            var copied = document.execCommand('copy');
+                            if (status) {
+                                status.textContent = copied
+                                    ? 'CSV export URL copied to your clipboard.'
+                                    : 'Copy failed. Select the URL manually and copy it from the field above.';
+                            }
                         }
                     });
                 })();
@@ -634,6 +660,10 @@ class EH_GFB_Admin {
             <?php endif; ?>
         </div>
         <?php
+    }
+
+    private function is_gravity_forms_available() : bool {
+        return class_exists( 'GFCommon' ) || class_exists( 'GFForms' );
     }
 
     private function render_help() : void {
@@ -666,6 +696,11 @@ class EH_GFB_Admin {
                 <li><?php esc_html_e( 'Convert it into the CSV export URL used by this plugin.', 'event-horizon-gf-blacklist' ); ?></li>
                 <li><?php esc_html_e( 'Copy the result or save it directly as the content or email blacklist URL.', 'event-horizon-gf-blacklist' ); ?></li>
             </ol>
+
+            <hr class="ehgfb-hr" />
+
+            <h2><?php esc_html_e( 'Dependencies', 'event-horizon-gf-blacklist' ); ?></h2>
+            <p class="description"><?php esc_html_e( 'Event Horizon requires Gravity Forms for field settings and submission blocking. Source syncing and cache management remain available even if Gravity Forms is inactive.', 'event-horizon-gf-blacklist' ); ?></p>
 
             <hr class="ehgfb-hr" />
 
