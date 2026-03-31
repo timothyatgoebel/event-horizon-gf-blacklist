@@ -42,6 +42,7 @@ class EH_GFB_Admin {
         add_action( 'admin_post_ehgfb_manual_sync', array( $this, 'handle_manual_sync' ) );
         add_action( 'admin_post_ehgfb_clear_lists', array( $this, 'handle_clear_lists' ) );
         add_action( 'admin_post_ehgfb_clear_logs', array( $this, 'handle_clear_logs' ) );
+        add_action( 'admin_post_ehgfb_lists_ack', array( $this, 'handle_lists_ack' ) );
         add_action( 'admin_post_ehgfb_url_fixer', array( $this, 'handle_url_fixer' ) );
     }
 
@@ -200,6 +201,10 @@ class EH_GFB_Admin {
             }
         }
 
+        if ( isset( $_GET['ehgfb_lists_ack_saved'] ) ) {
+            echo '<div class="notice notice-success inline"><p>' . esc_html__( 'List visibility preference saved.', 'event-horizon-gf-blacklist' ) . '</p></div>';
+        }
+
         if ( isset( $_GET['ehgfb_url_fixer_status'] ) ) {
             $status = sanitize_key( wp_unslash( $_GET['ehgfb_url_fixer_status'] ) );
             $state  = $this->get_url_fixer_state();
@@ -227,16 +232,6 @@ class EH_GFB_Admin {
         $user_id = get_current_user_id();
         $acked = $user_id ? (bool) get_user_meta( $user_id, self::USERMETA_LISTS_ACK, true ) : false;
 
-        // Handle acknowledgement toggle.
-        if ( isset( $_POST['ehgfb_lists_ack_submit'] ) ) {
-            check_admin_referer( 'ehgfb_lists_ack' );
-            $new = ! empty( $_POST['ehgfb_lists_ack'] ) ? 1 : 0;
-            if ( $user_id ) {
-                update_user_meta( $user_id, self::USERMETA_LISTS_ACK, $new );
-                $acked = (bool) $new;
-            }
-        }
-
         ?>
         <div class="ehgfb-grid">
             <div class="ehgfb-card">
@@ -245,8 +240,9 @@ class EH_GFB_Admin {
                     <?php esc_html_e( 'These are the rules currently cached in WordPress and used during Gravity Forms validation.', 'event-horizon-gf-blacklist' ); ?>
                 </p>
 
-                <form method="post" class="ehgfb-ack">
+                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="ehgfb-ack">
                     <?php wp_nonce_field( 'ehgfb_lists_ack' ); ?>
+                    <input type="hidden" name="action" value="ehgfb_lists_ack" />
                     <label>
                         <input type="checkbox" name="ehgfb_lists_ack" value="1" <?php checked( $acked, true ); ?> />
                         <?php esc_html_e( 'I understand these lists may contain sensitive or offensive terms. Reveal list contents on this device.', 'event-horizon-gf-blacklist' ); ?>
@@ -713,22 +709,22 @@ class EH_GFB_Admin {
 
         $old_interval = (int) get_option( self::OPT_SYNC_INTERVAL, 60 );
 
-        update_option( self::OPT_CONTENT_SOURCE, $this->sanitize_source( $_POST[ self::OPT_CONTENT_SOURCE ] ?? '' ) );
-        update_option( self::OPT_EMAIL_SOURCE, $this->sanitize_source( $_POST[ self::OPT_EMAIL_SOURCE ] ?? '' ) );
-        update_option( self::OPT_CONTENT_URL, $this->sanitize_url( $_POST[ self::OPT_CONTENT_URL ] ?? '' ) );
-        update_option( self::OPT_EMAIL_URL, $this->sanitize_url( $_POST[ self::OPT_EMAIL_URL ] ?? '' ) );
-        update_option( self::OPT_BEHAVIOR, $this->sanitize_behavior( $_POST[ self::OPT_BEHAVIOR ] ?? '' ) );
-        update_option( self::OPT_BLOCK_MESSAGE, $this->sanitize_message( $_POST[ self::OPT_BLOCK_MESSAGE ] ?? '' ) );
+        update_option( self::OPT_CONTENT_SOURCE, $this->sanitize_source( wp_unslash( $_POST[ self::OPT_CONTENT_SOURCE ] ?? '' ) ) );
+        update_option( self::OPT_EMAIL_SOURCE, $this->sanitize_source( wp_unslash( $_POST[ self::OPT_EMAIL_SOURCE ] ?? '' ) ) );
+        update_option( self::OPT_CONTENT_URL, $this->sanitize_url( wp_unslash( $_POST[ self::OPT_CONTENT_URL ] ?? '' ) ) );
+        update_option( self::OPT_EMAIL_URL, $this->sanitize_url( wp_unslash( $_POST[ self::OPT_EMAIL_URL ] ?? '' ) ) );
+        update_option( self::OPT_BEHAVIOR, $this->sanitize_behavior( wp_unslash( $_POST[ self::OPT_BEHAVIOR ] ?? '' ) ) );
+        update_option( self::OPT_BLOCK_MESSAGE, $this->sanitize_message( wp_unslash( $_POST[ self::OPT_BLOCK_MESSAGE ] ?? '' ) ) );
 
-        $new_interval = $this->sanitize_interval( $_POST[ self::OPT_SYNC_INTERVAL ] ?? 60 );
+        $new_interval = $this->sanitize_interval( wp_unslash( $_POST[ self::OPT_SYNC_INTERVAL ] ?? 60 ) );
         update_option( self::OPT_SYNC_INTERVAL, $new_interval );
-        update_option( self::OPT_LOG_ENABLED, $this->sanitize_bool( $_POST[ self::OPT_LOG_ENABLED ] ?? 0 ) );
-        update_option( self::OPT_LOG_RETENTION, $this->sanitize_retention( $_POST[ self::OPT_LOG_RETENTION ] ?? 30 ) );
-        update_option( self::OPT_CONTENT_HEADER, $this->sanitize_bool( $_POST[ self::OPT_CONTENT_HEADER ] ?? 0 ) );
-        update_option( self::OPT_EMAIL_HEADER, $this->sanitize_bool( $_POST[ self::OPT_EMAIL_HEADER ] ?? 0 ) );
+        update_option( self::OPT_LOG_ENABLED, $this->sanitize_bool( wp_unslash( $_POST[ self::OPT_LOG_ENABLED ] ?? 0 ) ) );
+        update_option( self::OPT_LOG_RETENTION, $this->sanitize_retention( wp_unslash( $_POST[ self::OPT_LOG_RETENTION ] ?? 30 ) ) );
+        update_option( self::OPT_CONTENT_HEADER, $this->sanitize_bool( wp_unslash( $_POST[ self::OPT_CONTENT_HEADER ] ?? 0 ) ) );
+        update_option( self::OPT_EMAIL_HEADER, $this->sanitize_bool( wp_unslash( $_POST[ self::OPT_EMAIL_HEADER ] ?? 0 ) ) );
 
-        $this->handle_uploaded_csv( 'content', 'ehgfb_content_csv_upload', ! empty( $_POST['ehgfb_content_csv_remove'] ) );
-        $this->handle_uploaded_csv( 'email', 'ehgfb_email_csv_upload', ! empty( $_POST['ehgfb_email_csv_remove'] ) );
+        $this->handle_uploaded_csv( 'content', 'ehgfb_content_csv_upload', ! empty( wp_unslash( $_POST['ehgfb_content_csv_remove'] ?? '' ) ) );
+        $this->handle_uploaded_csv( 'email', 'ehgfb_email_csv_upload', ! empty( wp_unslash( $_POST['ehgfb_email_csv_remove'] ?? '' ) ) );
 
         $this->sync->ensure_cron_scheduled( $old_interval !== $new_interval );
         $this->sync->sync_now( true );
@@ -779,6 +775,21 @@ class EH_GFB_Admin {
         check_admin_referer( 'ehgfb_clear_logs' );
         $this->logger->clear_logs();
         $url = wp_get_referer() ? wp_get_referer() : admin_url( 'admin.php?page=' . self::MENU_SLUG . '-logs' );
+        wp_safe_redirect( $url );
+        exit;
+    }
+
+    public function handle_lists_ack() : void {
+        if ( ! current_user_can( self::CAPABILITY ) ) { wp_die( 'Forbidden' ); }
+        check_admin_referer( 'ehgfb_lists_ack' );
+
+        $user_id = get_current_user_id();
+        if ( $user_id ) {
+            $acked = ! empty( wp_unslash( $_POST['ehgfb_lists_ack'] ?? '' ) ) ? 1 : 0;
+            update_user_meta( $user_id, self::USERMETA_LISTS_ACK, $acked );
+        }
+
+        $url = admin_url( 'admin.php?page=' . self::MENU_SLUG . '-lists&ehgfb_lists_ack_saved=1' );
         wp_safe_redirect( $url );
         exit;
     }
@@ -845,6 +856,9 @@ class EH_GFB_Admin {
     public function sanitize_message( $value ) : string {
         $value = (string) $value;
         $value = wp_strip_all_tags( $value );
+        if ( function_exists( 'mb_substr' ) ) {
+            return mb_substr( $value, 0, 500 );
+        }
         return substr( $value, 0, 500 );
     }
 
@@ -911,13 +925,7 @@ class EH_GFB_Admin {
             $gid = '0';
         }
 
-        $fixed = $scheme . '://docs.google.com/spreadsheets/d/' . rawurlencode( $sheet_id ) . '/export?format=csv&gid=' . rawurlencode( $gid );
-
-        if ( '' !== $fragment ) {
-            $fixed .= '#' . $fragment;
-        }
-
-        return $fixed;
+        return $scheme . '://docs.google.com/spreadsheets/d/' . rawurlencode( $sheet_id ) . '/export?format=csv&gid=' . rawurlencode( $gid );
     }
 
     private function get_url_fixer_state() : array {

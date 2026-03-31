@@ -32,6 +32,13 @@ final class EH_GFB_Plugin {
      */
     private $spam_form_ids = array();
 
+    /**
+     * Request-local cache of blacklist rules keyed by list type.
+     *
+     * @var array<string, array<int, string>>
+     */
+    private $request_lists = array();
+
     public static function instance() : self {
         if ( null === self::$instance ) {
             self::$instance = new self();
@@ -41,6 +48,7 @@ final class EH_GFB_Plugin {
 
     private function __construct() {
         $this->logger  = new EH_GFB_Logger();
+        $this->logger->maybe_upgrade();
         $this->sync    = new EH_GFB_Sync( $this->logger );
         $this->matcher = new EH_GFB_Matcher();
         $this->admin   = new EH_GFB_Admin( $this->sync, $this->logger );
@@ -75,7 +83,7 @@ final class EH_GFB_Plugin {
 
     public static function activate() : void {
         // Create/upgrade log table.
-        ( new EH_GFB_Logger() )->maybe_create_table();
+        ( new EH_GFB_Logger() )->maybe_upgrade();
 
         // Ensure schedules exist and events are registered.
         $sync = new EH_GFB_Sync( new EH_GFB_Logger() );
@@ -168,6 +176,11 @@ final class EH_GFB_Plugin {
             $this->sync->maybe_background_refresh();
         }
 
+        $this->request_lists = array(
+            'content' => $this->sync->get_cached_list( 'content' ),
+            'email'   => $this->sync->get_cached_list( 'email' ),
+        );
+
         // Reset hit tracking for this validation cycle.
         $form_id = (int) rgar( $form, 'id' );
         if ( $form_id ) {
@@ -218,8 +231,8 @@ final class EH_GFB_Plugin {
             return $result;
         }
 
-        $content_list = $this->sync->get_cached_list( 'content' );
-        $email_list   = $this->sync->get_cached_list( 'email' );
+        $content_list = $this->get_request_list( 'content' );
+        $email_list   = $this->get_request_list( 'email' );
 
         $behavior = get_option( EH_GFB_Admin::OPT_BEHAVIOR, 'no_entry' );
         $message  = get_option( EH_GFB_Admin::OPT_BLOCK_MESSAGE, __( 'Your submission was blocked.', 'event-horizon-gf-blacklist' ) );
@@ -344,5 +357,15 @@ final class EH_GFB_Plugin {
 
         // Existing per-hit match log.
         $this->logger->log_match( $list_type, $form_id, $field_id, $rule, $value_hash );
+    }
+
+    private function get_request_list( string $type ) : array {
+        $type = ( 'email' === $type ) ? 'email' : 'content';
+
+        if ( ! array_key_exists( $type, $this->request_lists ) ) {
+            $this->request_lists[ $type ] = $this->sync->get_cached_list( $type );
+        }
+
+        return is_array( $this->request_lists[ $type ] ) ? $this->request_lists[ $type ] : array();
     }
 }

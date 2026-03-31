@@ -481,7 +481,7 @@ class EH_GFB_Sync {
                 continue;
             }
 
-            $cols = str_getcsv( $line );
+            $cols = str_getcsv( $line, ',', '"', '\\' );
             if ( empty( $cols ) ) {
                 continue;
             }

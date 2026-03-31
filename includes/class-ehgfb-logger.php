@@ -3,9 +3,22 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
 
 class EH_GFB_Logger {
 
+    const OPT_DB_VERSION = 'ehgfb_log_db_version';
+
     private function table_name() : string {
         global $wpdb;
         return $wpdb->prefix . 'ehgfb_log';
+    }
+
+    public function maybe_upgrade() : void {
+        $installed_version = (string) get_option( self::OPT_DB_VERSION, '' );
+
+        if ( EH_GFB_VERSION === $installed_version ) {
+            return;
+        }
+
+        $this->maybe_create_table();
+        update_option( self::OPT_DB_VERSION, EH_GFB_VERSION, false );
     }
 
     public function maybe_create_table() : void {
@@ -57,9 +70,6 @@ class EH_GFB_Logger {
 
         global $wpdb;
         $table = $this->table_name();
-
-        // Ensure table exists.
-        $this->maybe_create_table();
 
         $wpdb->insert(
             $table,
