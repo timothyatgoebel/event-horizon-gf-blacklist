@@ -1,0 +1,25 @@
+# Packaged release artifacts
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+
+# OS / file explorer noise
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Editor / IDE noise
+.idea/
+.vscode/
+*.code-workspace
+
+# Logs and local scratch files
+*.log
+*.tmp
+*.bak
+*.swp
+
+# Test output / coverage
+coverage/
+.phpunit.result.cache

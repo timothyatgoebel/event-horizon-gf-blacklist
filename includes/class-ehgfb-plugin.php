@@ -25,6 +25,20 @@ final class EH_GFB_Plugin {
      */
     private $validation_hits = array();
 
+    /**
+     * Tracks forms that should be marked as spam instead of blocked.
+     *
+     * @var array<int, bool>
+     */
+    private $spam_form_ids = array();
+
+    /**
+     * Request-local cache of blacklist rules keyed by list type.
+     *
+     * @var array<string, array<int, string>>
+     */
+    private $request_lists = array();
+
     public static function instance() : self {
         if ( null === self::$instance ) {
             self::$instance = new self();
@@ -34,6 +48,7 @@ final class EH_GFB_Plugin {
 
     private function __construct() {
         $this->logger  = new EH_GFB_Logger();
+        $this->logger->maybe_upgrade();
         $this->sync    = new EH_GFB_Sync( $this->logger );
         $this->matcher = new EH_GFB_Matcher();
         $this->admin   = new EH_GFB_Admin( $this->sync, $this->logger );
@@ -58,24 +73,27 @@ final class EH_GFB_Plugin {
 
         // Overall validation result logging (pass/fail).
         add_filter( 'gform_validation', array( $this, 'validation_result' ), 10 );
+        add_filter( 'gform_entry_is_spam', array( $this, 'entry_is_spam' ), 10, 3 );
 
         // Cron.
         add_action( EH_GFB_Sync::CRON_HOOK, array( $this->sync, 'run_scheduled_sync' ) );
+        add_action( EH_GFB_Sync::CRON_REFRESH_HOOK, array( $this->sync, 'run_scheduled_sync' ) );
         add_action( EH_GFB_Sync::CRON_PURGE_HOOK, array( $this->logger, 'purge_old_logs' ) );
     }
 
     public static function activate() : void {
         // Create/upgrade log table.
-        ( new EH_GFB_Logger() )->maybe_create_table();
+        ( new EH_GFB_Logger() )->maybe_upgrade();
 
         // Ensure schedules exist and events are registered.
         $sync = new EH_GFB_Sync( new EH_GFB_Logger() );
-        $sync->ensure_cron_scheduled();
+        $sync->ensure_cron_scheduled( true );
         ( new EH_GFB_Logger() )->ensure_purge_scheduled();
     }
 
     public static function deactivate() : void {
         wp_clear_scheduled_hook( EH_GFB_Sync::CRON_HOOK );
+        wp_clear_scheduled_hook( EH_GFB_Sync::CRON_REFRESH_HOOK );
         wp_clear_scheduled_hook( EH_GFB_Sync::CRON_PURGE_HOOK );
     }
 
@@ -158,10 +176,16 @@ final class EH_GFB_Plugin {
             $this->sync->maybe_background_refresh();
         }
 
+        $this->request_lists = array(
+            'content' => $this->sync->get_cached_list( 'content' ),
+            'email'   => $this->sync->get_cached_list( 'email' ),
+        );
+
         // Reset hit tracking for this validation cycle.
         $form_id = (int) rgar( $form, 'id' );
         if ( $form_id ) {
             $this->validation_hits[ $form_id ] = array();
+            unset( $this->spam_form_ids[ $form_id ] );
         }
 
         return $form;
@@ -207,8 +231,8 @@ final class EH_GFB_Plugin {
             return $result;
         }
 
-        $content_list = $this->sync->get_cached_list( 'content' );
-        $email_list   = $this->sync->get_cached_list( 'email' );
+        $content_list = $this->get_request_list( 'content' );
+        $email_list   = $this->get_request_list( 'email' );
 
         $behavior = get_option( EH_GFB_Admin::OPT_BEHAVIOR, 'no_entry' );
         $message  = get_option( EH_GFB_Admin::OPT_BLOCK_MESSAGE, __( 'Your submission was blocked.', 'event-horizon-gf-blacklist' ) );
@@ -229,17 +253,29 @@ final class EH_GFB_Plugin {
         }
 
         if ( $hit ) {
-            // Fail the field.
-            $result['is_valid'] = false;
-            $result['message']  = $message;
-
-            // Optionally mark entry as spam.
             if ( $behavior === 'spam' ) {
-                add_filter( 'gform_entry_is_spam', '__return_true', 9999 );
+                $this->spam_form_ids[ $form_id ] = true;
+            } else {
+                // Fail the field.
+                $result['is_valid'] = false;
+                $result['message']  = $message;
             }
         }
 
         return $result;
+    }
+
+    public function entry_is_spam( $is_spam, $form, $entry ) {
+        if ( $is_spam ) {
+            return $is_spam;
+        }
+
+        $form_id = (int) rgar( $form, 'id' );
+        if ( ! $form_id ) {
+            return $is_spam;
+        }
+
+        return ! empty( $this->spam_form_ids[ $form_id ] );
     }
 
     /**
@@ -254,6 +290,18 @@ final class EH_GFB_Plugin {
 
         $is_valid = (bool) rgar( $validation_result, 'is_valid' );
         $hits     = $this->validation_hits[ $form_id ] ?? array();
+        $is_spam  = ! empty( $this->spam_form_ids[ $form_id ] );
+
+        if ( $is_spam ) {
+            $count = count( $hits );
+            $msg   = $count > 0
+                ? sprintf( 'Form flagged as spam (%d blacklist hit(s)).', $count )
+                : 'Form flagged as spam.';
+
+            $this->logger->log_event( 'validation_spam', 'system', $form_id, 0, '', '', $msg );
+            $this->log_recent_hits( $form_id, $hits );
+            return $validation_result;
+        }
 
         if ( $is_valid ) {
             $this->logger->log_event( 'validation_pass', 'system', $form_id, 0, '', '', 'Form passed validation.' );
@@ -267,10 +315,15 @@ final class EH_GFB_Plugin {
             : 'Form failed validation.';
 
         $this->logger->log_event( 'validation_fail', 'system', $form_id, 0, '', '', $msg );
+        $this->log_recent_hits( $form_id, $hits );
 
+        return $validation_result;
+    }
+
+    private function log_recent_hits( int $form_id, array $hits ) : void {
         // Log up to 3 most recent hits in a human friendly way (rule + field label) without storing raw user input.
         $max_detail = 3;
-        $recent = array_slice( array_reverse( $hits ), 0, $max_detail );
+        $recent     = array_slice( array_reverse( $hits ), 0, $max_detail );
         foreach ( $recent as $h ) {
             $detail = sprintf(
                 'Hit on field "%s" (field_id=%d) using %s rule: %s',
@@ -281,8 +334,6 @@ final class EH_GFB_Plugin {
             );
             $this->logger->log_event( 'validation_hit', (string) ( $h['list_type'] ?? '' ), $form_id, (int) ( $h['field_id'] ?? 0 ), (string) ( $h['rule'] ?? '' ), (string) ( $h['value_hash'] ?? '' ), $detail );
         }
-
-        return $validation_result;
     }
 
     private function record_hit( int $form_id, int $field_id, string $list_type, string $rule, string $value_hash, $field ) : void {
@@ -306,5 +357,15 @@ final class EH_GFB_Plugin {
 
         // Existing per-hit match log.
         $this->logger->log_match( $list_type, $form_id, $field_id, $rule, $value_hash );
+    }
+
+    private function get_request_list( string $type ) : array {
+        $type = ( 'email' === $type ) ? 'email' : 'content';
+
+        if ( ! array_key_exists( $type, $this->request_lists ) ) {
+            $this->request_lists[ $type ] = $this->sync->get_cached_list( $type );
+        }
+
+        return is_array( $this->request_lists[ $type ] ) ? $this->request_lists[ $type ] : array();
     }
 }

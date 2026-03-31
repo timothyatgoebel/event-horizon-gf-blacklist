@@ -1,8 +1,8 @@
 <?php
 /*
 Plugin Name: Event Horizon - Gravity Forms Blacklist
-Description: Syncs content and email blacklists from Google Sheets (CSV) and applies them to Gravity Forms fields.
-Version: 1.0.1
+Description: Imports content and email blacklists from Google Sheets or uploaded CSV files and applies them to Gravity Forms fields.
+Version: 1.1.0
 Author: Goebel Media
 License: GPLv2 or later
 Text Domain: event-horizon-gf-blacklist
@@ -10,7 +10,7 @@ Text Domain: event-horizon-gf-blacklist
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'EH_GFB_VERSION', '1.0.0' );
+define( 'EH_GFB_VERSION', '1.1.0' );
 define( 'EH_GFB_PLUGIN_FILE', __FILE__ );
 define( 'EH_GFB_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'EH_GFB_PLUGIN_URL', plugin_dir_url( __FILE__ ) );

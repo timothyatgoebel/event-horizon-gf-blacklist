@@ -48,18 +48,28 @@ class EH_GFB_Matcher {
 
         // Email specific helpers
         if ( $type === 'email' ) {
+            $email = strtolower( $value );
+
             // Domain wildcard *@domain.com
             if ( strpos( $rule_raw, '*@' ) === 0 ) {
                 $domain = strtolower( trim( substr( $rule_raw, 2 ) ) );
-                $email  = strtolower( $value );
-                if ( $domain !== '' && substr( $email, - ( strlen( $domain ) + 1 ) ) === '@' . $domain ) {
+                if ( $this->email_matches_domain( $email, $domain ) ) {
+                    return array( 'rule' => $rule_raw, 'value_hash' => $value_hash );
+                }
+                return null;
+            }
+
+            // Domain shorthand example.com
+            if ( strpos( $rule_raw, '@' ) === false && strpos( $rule_raw, '.' ) !== false ) {
+                $domain = strtolower( trim( $rule_raw ) );
+                if ( $this->email_matches_domain( $email, $domain ) ) {
                     return array( 'rule' => $rule_raw, 'value_hash' => $value_hash );
                 }
                 return null;
             }
 
             // Exact match (case-insensitive)
-            if ( strtolower( $value ) === strtolower( $rule_raw ) ) {
+            if ( $email === strtolower( $rule_raw ) ) {
                 return array( 'rule' => $rule_raw, 'value_hash' => $value_hash );
             }
 
@@ -110,6 +120,23 @@ class EH_GFB_Matcher {
     private function is_valid_regex( string $pattern ) : bool {
         // Suppress warnings; just verify compilation.
         return @preg_match( $pattern, '' ) !== false;
+    }
+
+    private function email_matches_domain( string $email, string $domain ) : bool {
+        if ( $domain === '' || strpos( $email, '@' ) === false ) {
+            return false;
+        }
+
+        $email_domain = strtolower( (string) substr( strrchr( $email, '@' ), 1 ) );
+        if ( $email_domain === '' ) {
+            return false;
+        }
+
+        if ( $email_domain === $domain ) {
+            return true;
+        }
+
+        return substr( $email_domain, - ( strlen( $domain ) + 1 ) ) === '.' . $domain;
     }
 
     private function value_hash( string $value ) : string {
