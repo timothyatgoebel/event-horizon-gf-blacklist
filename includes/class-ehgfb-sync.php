@@ -9,6 +9,7 @@ class EH_GFB_Sync {
     const SOURCE_UPLOADED_CSV  = 'uploaded_csv';
 
     const CRON_HOOK = 'ehgfb_cron_sync';
+    const CRON_REFRESH_HOOK = 'ehgfb_cron_refresh_sync';
     const CRON_PURGE_HOOK = 'ehgfb_cron_purge_logs';
 
     const OPT_CACHE_CONTENT = 'ehgfb_cache_content';
@@ -39,6 +40,7 @@ class EH_GFB_Sync {
     public function ensure_cron_scheduled( bool $reschedule = false ) : void {
         if ( ! $this->should_schedule_remote_sync() ) {
             wp_clear_scheduled_hook( self::CRON_HOOK );
+            wp_clear_scheduled_hook( self::CRON_REFRESH_HOOK );
             return;
         }
 
@@ -67,7 +69,10 @@ class EH_GFB_Sync {
         }
 
         $status  = get_option( self::OPT_STATUS, array() );
-        $last    = (int) ( $status['last_sync_ts'] ?? 0 );
+        $last    = max(
+            (int) ( $status['last_sync_ts'] ?? 0 ),
+            (int) ( $status['last_attempt_ts'] ?? 0 )
+        );
         $minutes = (int) get_option( EH_GFB_Admin::OPT_SYNC_INTERVAL, 60 );
         $ttl     = max( 5, min( 1440, $minutes ) ) * MINUTE_IN_SECONDS;
 
@@ -75,7 +80,9 @@ class EH_GFB_Sync {
             return;
         }
 
-        $this->sync_now( false );
+        if ( ! wp_next_scheduled( self::CRON_REFRESH_HOOK ) ) {
+            wp_schedule_single_event( time() + 30, self::CRON_REFRESH_HOOK );
+        }
     }
 
     public function sync_now( bool $force ) : bool {
@@ -83,23 +90,28 @@ class EH_GFB_Sync {
 
         $ok_content = $this->sync_one( 'content', $force );
         $ok_email   = $this->sync_one( 'email', $force );
+        $now        = time();
 
         $status                     = get_option( self::OPT_STATUS, array() );
-        $status['last_sync_ts']     = time();
-        $status['last_sync_human']  = date_i18n( 'Y-m-d H:i:s', $status['last_sync_ts'] );
+        $status['last_attempt_ts']  = $now;
+        $status['last_attempt_human'] = date_i18n( 'Y-m-d H:i:s', $now );
         $status['content_count']    = count( $this->get_cached_list( 'content' ) );
         $status['email_count']      = count( $this->get_cached_list( 'email' ) );
         $status['cron_enabled']     = $this->should_schedule_remote_sync();
         $status['content_source']   = $this->get_source_mode( 'content' );
         $status['email_source']     = $this->get_source_mode( 'email' );
 
-        update_option( self::OPT_STATUS, $status, false );
-
         if ( $ok_content && $ok_email ) {
+            $status['last_sync_ts']    = $now;
+            $status['last_sync_human'] = date_i18n( 'Y-m-d H:i:s', $now );
+            $status['last_result']     = 'success';
+            update_option( self::OPT_STATUS, $status, false );
             $this->logger->log_event( 'sync', 'system', 0, 0, '', '', 'Blacklist refresh completed successfully.' );
             return true;
         }
 
+        $status['last_result'] = 'error';
+        update_option( self::OPT_STATUS, $status, false );
         $this->logger->log_event( 'error', 'system', 0, 0, '', '', 'Blacklist refresh completed with errors.' );
         return false;
     }
@@ -137,6 +149,13 @@ class EH_GFB_Sync {
             $this->get_source_warnings( 'content' ),
             $this->get_source_warnings( 'email' )
         );
+
+        if ( ( $status['last_result'] ?? '' ) === 'error' ) {
+            $attempt = (string) ( $status['last_attempt_human'] ?? '' );
+            $warnings[] = $attempt !== ''
+                ? sprintf( __( 'The last refresh attempt failed at %s. Existing cached rules are still in use.', 'event-horizon-gf-blacklist' ), $attempt )
+                : __( 'The last refresh attempt failed. Existing cached rules are still in use.', 'event-horizon-gf-blacklist' );
+        }
 
         $next = wp_next_scheduled( self::CRON_HOOK );
         $status['next_sync_human'] = $next ? date_i18n( 'Y-m-d H:i:s', $next ) : '';
@@ -299,26 +318,40 @@ class EH_GFB_Sync {
 
     private function sync_uploaded_csv( string $type, int $has_header ) : bool {
         $file = $this->get_uploaded_csv_details( $type );
-        if ( empty( $file['path'] ) ) {
+        $body = '';
+
+        if ( ! empty( $file['contents'] ) && is_string( $file['contents'] ) ) {
+            $body = $file['contents'];
+        } elseif ( ! empty( $file['path'] ) ) {
+            $path = (string) $file['path'];
+            if ( ! file_exists( $path ) || ! is_readable( $path ) ) {
+                $this->logger->log_event( 'error', $type, 0, 0, '', '', 'Uploaded CSV file is missing or unreadable.' );
+                return false;
+            }
+
+            $size = @filesize( $path );
+            if ( is_int( $size ) && $size > 500000 ) {
+                $this->logger->log_event( 'error', $type, 0, 0, '', '', 'CSV file exceeded 500KB safety limit.' );
+                return false;
+            }
+
+            $body = file_get_contents( $path );
+            if ( false === $body ) {
+                $this->logger->log_event( 'error', $type, 0, 0, '', '', 'Failed to read uploaded CSV file.' );
+                return false;
+            }
+
+            $legacy_hash = @md5_file( $path );
+            $this->migrate_uploaded_csv_storage(
+                $type,
+                array(
+                    'contents' => $body,
+                    'name'     => (string) ( $file['name'] ?? '' ),
+                    'hash'     => $legacy_hash ? $legacy_hash : md5( $body ),
+                )
+            );
+        } else {
             return true;
-        }
-
-        $path = (string) $file['path'];
-        if ( ! file_exists( $path ) || ! is_readable( $path ) ) {
-            $this->logger->log_event( 'error', $type, 0, 0, '', '', 'Uploaded CSV file is missing or unreadable.' );
-            return false;
-        }
-
-        $size = @filesize( $path );
-        if ( is_int( $size ) && $size > 500000 ) {
-            $this->logger->log_event( 'error', $type, 0, 0, '', '', 'CSV file exceeded 500KB safety limit.' );
-            return false;
-        }
-
-        $body = file_get_contents( $path );
-        if ( false === $body ) {
-            $this->logger->log_event( 'error', $type, 0, 0, '', '', 'Failed to read uploaded CSV file.' );
-            return false;
         }
 
         if ( strlen( $body ) > 500000 ) {
@@ -327,13 +360,11 @@ class EH_GFB_Sync {
         }
 
         $rules = $this->parse_csv_rules( $body, $has_header );
-        $mtime = @filemtime( $path );
-        $hash  = @md5_file( $path );
 
         $meta = array(
             'etag'          => '',
-            'last_modified' => $mtime ? gmdate( 'D, d M Y H:i:s', $mtime ) . ' GMT' : '',
-            'file_hash'     => $hash ? $hash : '',
+            'last_modified' => gmdate( 'D, d M Y H:i:s' ) . ' GMT',
+            'file_hash'     => ! empty( $file['hash'] ) ? (string) $file['hash'] : md5( $body ),
             'source_mode'   => self::SOURCE_UPLOADED_CSV,
             'source_label'  => 'uploaded_csv',
             'file_name'     => (string) ( $file['name'] ?? '' ),
@@ -377,6 +408,27 @@ class EH_GFB_Sync {
         return is_array( $file ) ? $file : array();
     }
 
+    private function migrate_uploaded_csv_storage( string $type, array $data ) : void {
+        $option   = ( 'email' === $type ) ? EH_GFB_Admin::OPT_EMAIL_FILE : EH_GFB_Admin::OPT_CONTENT_FILE;
+        $existing = $this->get_uploaded_csv_details( $type );
+        $path     = (string) ( $existing['path'] ?? '' );
+
+        if ( $path !== '' && file_exists( $path ) && is_writable( $path ) ) {
+            wp_delete_file( $path );
+        }
+
+        update_option(
+            $option,
+            array(
+                'name'      => sanitize_file_name( (string) ( $data['name'] ?? '' ) ),
+                'contents'  => (string) ( $data['contents'] ?? '' ),
+                'hash'      => (string) ( $data['hash'] ?? '' ),
+                'updated_at' => time(),
+            ),
+            false
+        );
+    }
+
     private function get_source_warnings( string $type ) : array {
         $label = ( 'email' === $type )
             ? __( 'Email', 'event-horizon-gf-blacklist' )
@@ -384,6 +436,10 @@ class EH_GFB_Sync {
 
         if ( self::SOURCE_UPLOADED_CSV === $this->get_source_mode( $type ) ) {
             $file = $this->get_uploaded_csv_details( $type );
+
+            if ( ! empty( $file['contents'] ) ) {
+                return array();
+            }
 
             if ( empty( $file['path'] ) ) {
                 return array( sprintf( __( '%s uploaded CSV is not set.', 'event-horizon-gf-blacklist' ), $label ) );

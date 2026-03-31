@@ -384,6 +384,7 @@ class EH_GFB_Admin {
                                 <?php if ( ! empty( $content_file['name'] ) ) : ?>
                                     <p class="description"><?php echo esc_html( sprintf( __( 'Current file: %s', 'event-horizon-gf-blacklist' ), (string) $content_file['name'] ) ); ?></p>
                                 <?php endif; ?>
+                                <p class="description"><?php esc_html_e( 'Uploaded CSV content is stored internally by WordPress and the temporary upload file is deleted after import.', 'event-horizon-gf-blacklist' ); ?></p>
                                 <label class="ehgfb-inline">
                                     <input type="checkbox" name="ehgfb_content_csv_remove" value="1" />
                                     <?php esc_html_e( 'Remove uploaded content CSV', 'event-horizon-gf-blacklist' ); ?>
@@ -416,6 +417,7 @@ class EH_GFB_Admin {
                                 <?php if ( ! empty( $email_file['name'] ) ) : ?>
                                     <p class="description"><?php echo esc_html( sprintf( __( 'Current file: %s', 'event-horizon-gf-blacklist' ), (string) $email_file['name'] ) ); ?></p>
                                 <?php endif; ?>
+                                <p class="description"><?php esc_html_e( 'Uploaded CSV content is stored internally by WordPress and the temporary upload file is deleted after import.', 'event-horizon-gf-blacklist' ); ?></p>
                                 <label class="ehgfb-inline">
                                     <input type="checkbox" name="ehgfb_email_csv_remove" value="1" />
                                     <?php esc_html_e( 'Remove uploaded email CSV', 'event-horizon-gf-blacklist' ); ?>
@@ -440,6 +442,7 @@ class EH_GFB_Admin {
                         <option value="no_entry" <?php selected( $behavior, 'no_entry' ); ?>><?php esc_html_e( 'Block submission (validation error)', 'event-horizon-gf-blacklist' ); ?></option>
                         <option value="spam" <?php selected( $behavior, 'spam' ); ?>><?php esc_html_e( 'Mark entry as spam', 'event-horizon-gf-blacklist' ); ?></option>
                     </select>
+                    <p class="description"><?php esc_html_e( 'Spam mode lets Gravity Forms accept the submission and store it as spam for review. Block mode stops the form with a validation error.', 'event-horizon-gf-blacklist' ); ?></p>
 
                     <label class="ehgfb-label" for="ehgfb_block_message"><?php esc_html_e( 'User-facing message', 'event-horizon-gf-blacklist' ); ?></label>
                     <textarea id="ehgfb_block_message" name="<?php echo esc_attr( self::OPT_BLOCK_MESSAGE ); ?>" class="large-text ehgfb-textarea" rows="3"><?php echo esc_textarea( $message ); ?></textarea>
@@ -645,14 +648,13 @@ class EH_GFB_Admin {
 
             <h3><?php esc_html_e( 'Google Sheets CSV link', 'event-horizon-gf-blacklist' ); ?></h3>
             <ol class="ehgfb-ol">
-                <li><?php esc_html_e( 'Open your Google Sheet and click File > Share > Publish to web.', 'event-horizon-gf-blacklist' ); ?></li>
-                <li><?php esc_html_e( 'Choose the specific sheet or tab, not the entire document.', 'event-horizon-gf-blacklist' ); ?></li>
-                <li><?php esc_html_e( 'Select "Comma-separated values (.csv)" as the format, then click Publish.', 'event-horizon-gf-blacklist' ); ?></li>
-                <li><?php esc_html_e( 'Copy the published URL and paste it into the appropriate setting on the Settings tab.', 'event-horizon-gf-blacklist' ); ?></li>
+                <li><?php esc_html_e( 'Use a Google Sheets CSV export URL for the specific tab you want to import.', 'event-horizon-gf-blacklist' ); ?></li>
+                <li><?php esc_html_e( 'If you only have a normal Google Sheets sharing or edit link, open the Tools tab and use URL Fixer to convert it.', 'event-horizon-gf-blacklist' ); ?></li>
+                <li><?php esc_html_e( 'Paste the CSV export URL into the appropriate setting on the Settings tab.', 'event-horizon-gf-blacklist' ); ?></li>
             </ol>
-            <p class="description"><?php esc_html_e( 'Tip: If you prefer not to publish the sheet to the web, you can also use an export link in the format below.', 'event-horizon-gf-blacklist' ); ?></p>
+            <p class="description"><?php esc_html_e( 'Use the export link format below.', 'event-horizon-gf-blacklist' ); ?></p>
             <p><code>https://docs.google.com/spreadsheets/d/&lt;SHEET_ID&gt;/export?format=csv&amp;gid=&lt;TAB_GID&gt;</code></p>
-            <p class="description"><?php esc_html_e( 'If you only have a normal Google Sheets edit or sharing link, open the Tools tab and use URL Fixer to convert it.', 'event-horizon-gf-blacklist' ); ?></p>
+            <p class="description"><?php esc_html_e( 'Only export URLs in this format are accepted during sync.', 'event-horizon-gf-blacklist' ); ?></p>
 
             <h3><?php esc_html_e( 'Uploaded CSV file', 'event-horizon-gf-blacklist' ); ?></h3>
             <ol class="ehgfb-ol">
@@ -684,7 +686,8 @@ class EH_GFB_Admin {
             <h3><?php esc_html_e( 'Email rules', 'event-horizon-gf-blacklist' ); ?></h3>
             <ul class="ehgfb-ul">
                 <li><code>badguy@example.com</code> - <?php esc_html_e( 'Exact email match (case-insensitive).', 'event-horizon-gf-blacklist' ); ?></li>
-                <li><code>*@spammail.com</code> - <?php esc_html_e( 'Block an entire domain.', 'event-horizon-gf-blacklist' ); ?></li>
+                <li><code>*@spammail.com</code> - <?php esc_html_e( 'Block an entire domain exactly.', 'event-horizon-gf-blacklist' ); ?></li>
+                <li><code>spammail.com</code> - <?php esc_html_e( 'Domain shorthand; matches that domain and its subdomains only.', 'event-horizon-gf-blacklist' ); ?></li>
                 <li><code>regex:/@temp-mail\./i</code> - <?php esc_html_e( 'Regex match (useful for disposable email patterns).', 'event-horizon-gf-blacklist' ); ?></li>
             </ul>
 
@@ -947,6 +950,9 @@ class EH_GFB_Admin {
             }
             delete_option( $option );
             $existing = array();
+        } elseif ( $remove_existing ) {
+            delete_option( $option );
+            $existing = array();
         }
 
         if ( empty( $_FILES[ $file_input ] ) || empty( $_FILES[ $file_input ]['name'] ) ) {
@@ -975,6 +981,16 @@ class EH_GFB_Admin {
             return;
         }
 
+        $body = file_get_contents( (string) $uploaded['file'] );
+        if ( false === $body || strlen( $body ) > 500000 ) {
+            if ( file_exists( (string) $uploaded['file'] ) && is_writable( (string) $uploaded['file'] ) ) {
+                wp_delete_file( (string) $uploaded['file'] );
+            }
+            return;
+        }
+
+        $hash = md5( $body );
+
         if ( ! empty( $existing['path'] ) ) {
             $old_path = (string) $existing['path'];
             if ( file_exists( $old_path ) && is_writable( $old_path ) ) {
@@ -982,12 +998,17 @@ class EH_GFB_Admin {
             }
         }
 
+        if ( file_exists( (string) $uploaded['file'] ) && is_writable( (string) $uploaded['file'] ) ) {
+            wp_delete_file( (string) $uploaded['file'] );
+        }
+
         update_option(
             $option,
             array(
-                'path' => (string) $uploaded['file'],
-                'url'  => (string) ( $uploaded['url'] ?? '' ),
-                'name' => sanitize_file_name( (string) $file['name'] ),
+                'name'       => sanitize_file_name( (string) $file['name'] ),
+                'contents'   => $body,
+                'hash'       => $hash,
+                'updated_at' => time(),
             ),
             false
         );
