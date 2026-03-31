@@ -303,12 +303,11 @@ final class EH_GFB_Plugin {
             return $validation_result;
         }
 
-        if ( $is_valid ) {
-            $this->logger->log_event( 'validation_pass', 'system', $form_id, 0, '', '', 'Form passed validation.' );
+        if ( empty( $hits ) ) {
             return $validation_result;
         }
 
-        // If invalid, log a summary and the first few hits (the individual hits are already logged as match events).
+        // Only log validation failures caused by blacklist hits so unrelated form traffic does not fill the log table.
         $count = count( $hits );
         $msg = $count > 0
             ? sprintf( 'Form failed validation (%d blacklist hit(s)).', $count )

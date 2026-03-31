@@ -326,4 +326,24 @@ assert_true($second['is_valid'] === false, 'Second validation should reuse the s
 assert_same(2, $counting_sync->calls, 'Validation-cycle cache should load each list once during pre-validation and reuse them for fields.');
 assert_same(2, count($test_logger->matches), 'Each blacklist hit should still be logged when matches occur.');
 
+$clean_plugin = $plugin_reflection->newInstanceWithoutConstructor();
+$clean_logger = new EH_GFB_Logger();
+
+set_private_property($clean_plugin, 'sync', $counting_sync);
+set_private_property($clean_plugin, 'matcher', new EH_GFB_Matcher());
+set_private_property($clean_plugin, 'logger', $clean_logger);
+set_private_property($clean_plugin, 'validation_hits', array(9 => array()));
+set_private_property($clean_plugin, 'spam_form_ids', array());
+set_private_property($clean_plugin, 'request_lists', array());
+
+$clean_result = $clean_plugin->validation_result(
+    array(
+        'is_valid' => true,
+        'form' => array('id' => 9),
+    )
+);
+
+assert_true($clean_result['is_valid'] === true, 'Validation results without blacklist hits should pass through unchanged.');
+assert_same(0, count($clean_logger->events), 'Validation results without blacklist hits should not create log noise.');
+
 echo "Smoke tests passed.\n";

@@ -12,6 +12,14 @@ Import content and email blacklists from Google Sheets or uploaded CSV files and
 
 ---
 
+## Requirements
+
+- WordPress 6.0+
+- PHP 7.4+
+- Gravity Forms must be installed and active for field protection to work
+
+---
+
 ## Import Methods
 
 Each blacklist can use its own source:
